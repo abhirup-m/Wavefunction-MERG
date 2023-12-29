@@ -1,0 +1,16 @@
+*.fls
+*.aux
+*.bbl
+*.lot
+*.lof
+*.log
+*.out
+*.synctex.gz
+*.toc
+*.fdb_latexmk
+*.blg
+*.dvi
+*.qu
+*.npy
+*.npz
+*.ipynb_checkpoint*
