@@ -1,7 +1,7 @@
 \documentclass[prb]{revtex4-2}
 \usepackage{braket,amsmath,amssymb,color,graphicx,hyperref}
 \begin{document}
-\title{Tensor network evolution under the unitary renormalisation group method}
+\title{Wavefunction evolution under the unitary renormalisation group method}
 
 \maketitle
 
@@ -53,7 +53,7 @@ Here, \(q\) is the first momentum state immediately outside the emergent cloud. 
 A straightforward way of calculating entanglement and correlations across the RG flow is to create a second-quantised prototypical form of the IR state \(\ket{\Psi_0}\), and then apply the inverse unitary operators \(\left\{ U_i \right\} \) to this wavefunction in order to generate the family of states \(\ket{\Psi_i} = U_i \ket{\Psi_{i-1}}, i > 0\). Quantities like entanglement entropy and correlations can then be calculated by using this family of kets. Such a method, however, soon runs into problems of time complexity and physical memory usage. This is primarily because the operators and the kets are many-body in nature and grow exponentially in size as the number of electronic states are increased.
 
 \section{Evolution equation for tensor network coefficients}
-In the last part of this section, we will show a more efficient method of computing quantities along the reverse RG operations. We will demonstrate this for the much simpler single-channel Kondo problem (which can be obtained from our model by setting all interactions apart from the Kondo coupling \(J\) to zero). For this, we will first have to perform some analytical groundwork. The URG transition operators for re-entangling the states at momentum \(q\) take the form
+We will now show a more efficient method of computing quantities along the reverse RG operations. We will demonstrate this for the much simpler single-channel Kondo problem (which can be obtained from our model by setting all interactions apart from the Kondo coupling \(J\) to zero). For this, we will first have to perform some analytical groundwork. The URG transition operators for re-entangling the states at momentum \(q\) take the form
 \begin{equation}\begin{aligned}
 	\eta_{q\beta}^\dagger = \alpha(q)\sum_{k} \left( S_d^z \beta c^\dagger_{q\beta}c_{k\beta} + c^\dagger_{d\overline\beta}c_{d\beta}c^\dagger_{q\beta}c_{k\overline\beta}\right) ~,\\
 	\eta_{q\beta} = \alpha(q)\sum_{k} \left( S_d^z \beta c^\dagger_{k\beta}c_{q\beta} + c^\dagger_{d\beta}c_{d\overline\beta}c^\dagger_{k\overline\beta}c_{q\beta}\right)~,
