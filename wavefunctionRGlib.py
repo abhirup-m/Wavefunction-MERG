@@ -1,7 +1,8 @@
 ######## TODO ########
-#### incorporate other IOM sectors
-#### consider saving data instead of storing in memory
-#### parallelise
+#### incorporate other IOM sectors,
+#### consider writing the data instead of storing it in memory,
+#### parallelise,
+
 
 """
 OVERVIEW
@@ -31,10 +32,11 @@ ASSUMPTIONS & CONVENTIONS
 """
 
 
-from itertools import product
+import itertools
 import numpy as np
 import scipy.linalg
 from tqdm import tqdm
+from multiprocessing import Pool
 from time import time
 
 def get_basis(num_levels):
@@ -46,7 +48,7 @@ def get_basis(num_levels):
     character represents the configuration (empty or occupied) of
     each single-particle level
     """
-    return np.array([list(l) for l in product([0,1], repeat=num_levels)])
+    return np.array([list(l) for l in itertools.product([0,1], repeat=num_levels)])
 
 
 def init_wavefunction(hamlt, mb_basis):
@@ -70,6 +72,44 @@ def init_wavefunction(hamlt, mb_basis):
     
     return coefficients, combinations
     
+
+def visualise_state(mb_basis, state):
+    """ Gives a handy visualisation for a many-body vector 'state'. mb_basis is the complete
+    basis for the associated system. For a state |up,dn> - |dn,up>, the visualisation is of the form
+        up|dn       dn|up
+        1           -1
+    """
+
+    computational_coeffs, basis_states = get_computational_coefficients(mb_basis, state)
+
+    state_string = "\t\t".join(["|".join([["0", "\u2191", "\u2193", "2"][basis_state[2 * i] + 2 * basis_state[2 * i + 1]] 
+                                          for i in range(len(basis_state) // 2)]) for basis_state in basis_states])
+    coeffs_string = "\t\t".join([str(np.round(coeff, 3)) for coeff in computational_coeffs])
+    return state_string+"\n"+coeffs_string
+
+
+def get_computational_coefficients(basis, state):
+    """ Given a general state and a complete basis, returns specifically those
+    basis states that can express this general state as a superposition. Also returns
+    the associated coefficients of the superposition.
+    """
+    
+    # For a general state of m particles, first generate the 2**m dimensional basis,
+    # where the states are of the form [1,0,0,...0], [0,1,0,...,0], etc. 
+    computational_basis = [np.concatenate((np.zeros(i), [1], np.zeros(len(basis) - 1 - i))) for i in range(len(basis))]
+    
+    # Obtain the contribution of each such basis state in the superposition by
+    # calculating the overlap of each such state with the general state.
+    coefficients = [np.round(np.inner(basis_state, state), 5) for basis_state in computational_basis]
+    
+    # filter out only those coefficients that are non-zero. 
+    # also filter out the associated basis states.
+    non_zero_coeffs = [coeff for coeff in coefficients if coeff != 0]
+    non_zero_basis = [b for coeff, b in zip(coefficients, basis) if coeff != 0]
+    
+    return non_zero_coeffs, non_zero_basis
+
+
 def get_operator(manybody_basis, int_kind, site_indices):
     """ Constructs a matrix operator given a prescription.
     manybody_basis is the set of all possible classical states.
@@ -90,40 +130,25 @@ def get_operator(manybody_basis, int_kind, site_indices):
     operator = np.zeros([len(manybody_basis), len(manybody_basis)])
     
     # Goes over all pairs of basis states |b1>, |b2> of the operator in order to obtain each matrix element <b2|O|b1>.
-    for (i_1, b1), (i_2, b2) in product(enumerate(manybody_basis), repeat=2):
+    for (i_1, b1), (i_2, b2) in itertools.product(enumerate(manybody_basis), repeat=2):
         
-        # creating a copy of the state so that we can apply the operators on it
-        modified_b2 = np.copy(b2)
-        
-        mat_ele = 1
-        
-        # looping over all the characters in the term int_kind (for "+-+-", op takes values "+", then "-", etc).
-        # simultaneously looping over the site indices associated with the characters.
-        for op, index in zip(int_kind[::-1], site_indices[::-1]):
-            
-            # if the operator is num op(1-num op), multiply the electron(hole) occupancy
-            if op == "n" or op == 'h':
-                mat_ele *= modified_b2[index] if op == "n" else 1 - modified_b2[index]
-            else:
-                # otherwise first transport the operator to its position in the eigenket, 
-                # calculation the fermion sign along the way.
-                mat_ele *= (-1) ** sum(modified_b2[:index])
-                if (op == "+" and modified_b2[index] == 1) or (op == "-" and modified_b2[index] == 0):
-                    # If we are trying to apply c^dag on |1> or c on |0>, set matrix element to zero.
-                    mat_ele = 0
-                    break
-                else:
-                    # otherwise, just flip the occupancy to (1-occupancy).
-                    modified_b2[index] = 1 - modified_b2[index]
+        # get the action of 'int_kind' on the state b2
+        modified_b2, mat_ele = applyTermOnBasisState(np.copy(b2), int_kind, site_indices)
                     
         # Since |modified_b2> = O |b2>, matrix element <b1|O|b2> is non-zero
         # only if <b1|modified_b2> is non-zero, which is possible only if
         # |modified_b2> = |b1> (they are classical states, no correlations).
         if False in np.equal(modified_b2, b1):
-            mat_ele = 0
-
-        operator[i_1][i_2] = mat_ele
+            operator[i_1][i_2] = 0
+        else:
+            operator[i_1][i_2] = mat_ele
     return operator
+    
+    
+def get_operator_overlap(init_state, final_state, operator):
+    """ Calculates the overlap <final_state | operator | init_state>.
+    """
+    return np.dot(final_state.H, np.dot(operator, init_state))  
     
     
 def get_fermionic_hamiltonian(manybody_basis, terms_list):
@@ -159,47 +184,228 @@ def diagonalise(hamlt):
     return E, [v[:,i] for i in range(len(E))]
 
 
-def get_operator_overlap(init_state, final_state, operator):
-    """ Calculates the overlap <final_state | operator | init_state>.
-    """
-    return np.dot(final_state.H, np.dot(operator, init_state))  
-    
-    
-def get_computational_coefficients(basis, state):
-    """ Given a general state and a complete basis, returns specifically those
-    basis states that can express this general state as a superposition. Also returns
-    the associated coefficients of the superposition.
-    """
-    
-    # For a general state of m particles, first generate the 2**m dimensional basis,
-    # where the states are of the form [1,0,0,...0], [0,1,0,...,0], etc. 
-    computational_basis = [np.concatenate((np.zeros(i), [1], np.zeros(len(basis) - 1 - i))) for i in range(len(basis))]
-    
-    # Obtain the contribution of each such basis state in the superposition by
-    # calculating the overlap of each such state with the general state.
-    coefficients = [np.round(np.inner(basis_state, state), 5) for basis_state in computational_basis]
-    
-    # filter out only those coefficients that are non-zero. 
-    # also filter out the associated basis states.
-    non_zero_coeffs = [coeff for coeff in coefficients if coeff != 0]
-    non_zero_basis = [b for coeff, b in zip(coefficients, basis) if coeff != 0]
-    
-    return non_zero_coeffs, non_zero_basis
-
-
-def visualise_state(mb_basis, state):
-    """ Gives a handy visualisation for a many-body vector 'state'. mb_basis is the complete
-    basis for the associated system. For a state |up,dn> - |dn,up>, the visualisation is of the form
-        up|dn       dn|up
-        1           -1
+def applyTermOnBasisState(bstate, int_kind, site_indices):
+    """ Applies a simple operator on a basis state. A simple operator is of the form '+-',[0,1].
+    The first string, passed through the argument int_kind indicates the form of the operator.
+    It can be any operator of any length composed of the characters +,-,n,h. The list [0,1], passed
+    through the argument site_indices, defines the indices of the sites on which the operators will 
+    be applied. The n^th character of the string will act on the n^th element of site_indices. The
+    operator is simple in the sense that there is no summation of multiple operators involved here.
     """
 
-    computational_coeffs, basis_states = get_computational_coefficients(mb_basis, state)
+    # check that the operator is composed only out of +,-,n,h
+    assert False not in [k in ['+', '-', 'n', 'h'] for k in int_kind], "Interaction type not among +, - or n."
 
-    state_string = "\t\t".join(["|".join([["0", "\u2191", "\u2193", "2"][basis_state[2 * i] + 2 * basis_state[2 * i + 1]] 
-                                          for i in range(len(basis_state) // 2)]) for basis_state in basis_states])
-    coeffs_string = "\t\t".join([str(np.round(coeff, 3)) for coeff in computational_coeffs])
-    return state_string+"\n"+coeffs_string
+    # check that the number of operators in int_kind matches the number of sites in site_indices.
+    assert len(int_kind) == len(site_indices), "Number of site indices in term does not match number of provided interaction types."
+
+    # final_coeff stores any factors that might emerge from applying the operator.
+    final_coeff = 1
+
+    # loop over all characters in the operator string, along with the corresponding site indices.
+    for op, index in zip(int_kind[::-1], site_indices[::-1]):
+
+        # if the character is a number or a hole operator, just give the corresponding occupancy.
+        if op == "n":
+            final_coeff *= bstate[index]
+        elif op == "h":
+            final_coeff *= 1 - bstate[index]
+
+        # if the character is a create or annihilate operator, check if their is room for that.
+        # If not, set final_coeff to zero. If there is, flip the occupancy of the site.
+        elif op == "+":
+            if bstate[index] == 1:
+                final_coeff *= 0
+            else:
+                bstate[index] = 1
+        elif op == "-":
+            if bstate[index] == 0:
+                final_coeff *= 0
+            else:
+                bstate[index] = 0
+
+    return bstate, final_coeff
+        
+
+def applyOperatorOnState(coeffs, bstates, terms_list):
+    """ Applies a general operator on a general state. The general operator is specified through
+    the terms_list parameter. The description of this parameter has been provided in the docstring
+    of the get_fermionic_hamiltonian function.
+    """
+
+    # initialising the set of basis states and coefficients for the state resulting 
+    # from applying the operator on the given state.
+    final_bstates = []
+    final_coeffs = []
+
+    # loop over all basis states for the given state, to see how the operator acts 
+    # on each such basis state
+    for coeff, bstate in zip(coeffs, bstates):
+
+        # loop over each term (for eg the list [[0.5,[0,1]], [0.4,[1,2]]]) in the full interaction,
+        # so that we can apply each such chunk to each basis state.
+        for int_kind, val in terms_list.items():
+
+            # loop over the various coupling strengths and index sets in each interaction term. In
+            # the above example, coupling takes the values 0.5 and 0.4, while site_indices take the values
+            # [0,1] and [1,2].
+            for coupling, site_indices in val:
+
+                # apply each such operator chunk to each basis state
+                mod_bstate, mod_coeff = applyTermOnBasisState(np.copy(bstate), int_kind, site_indices)
+
+                # multiply this result with the coupling strength and any coefficient associated 
+                # with the initial state
+                mod_coeff *= coeff * coupling
+
+                final_bstates.append(mod_bstate)
+                final_coeffs.append(mod_coeff)
+
+    return final_coeffs, final_bstates
+
+
+def applyInverseTransform(coeffs, bstates, num_entangled, etaFunc, alpha, IOMconfig):
+    """ Apply the inverse unitary transformation on a state. The transformation is defined
+    as U = 1 + eta + eta^dag.
+    """
+
+    # expand the basis by inserting configurations for the IOMS, in preparation of applying 
+    # the eta,eta^dag on them. 
+    bstates = np.array([list(state) + [IOMconfig, IOMconfig] for state in bstates])
+
+    # obtain the appropriate eta and eta_dag for this step
+    eta_dag, eta = etaFunc(alpha, num_entangled)
+
+    # initialise the new coeffs by copying the old coefficients. This takes care of the 
+    # '1 +' part in the definition above.
+    new_coeffs = np.copy(coeffs)
+
+    # initialise the list of new basis states by copying the old basis states. We also
+    # convert the states into string representation in order to allow for easy comparison.
+    new_combinations_strings = ["".join([str(i) for i in state]) for state in bstates]
+
+    # get the action of eta and etadag by calling predefined functions
+    final_coeffs_eta, final_bstates_eta = applyOperatorOnState(coeffs, bstates, eta)
+    final_coeffs_etadag, final_bstates_etadag = applyOperatorOnState(coeffs, bstates, eta_dag)
+
+    # combine both results into single unified lists. If the coefficient after applying the
+    # operator is anyways zero, then don't bother
+    final_coeffs = np.concatenate((final_coeffs_eta, final_coeffs_etadag))
+    final_bstates = np.array(list(final_bstates_eta) + list(final_bstates_etadag))[final_coeffs != 0]
+    final_coeffs = final_coeffs[final_coeffs != 0]
+
+    # loop over this unified list of new states that are obtained after applying eta and eta dag.
+    # check if this new state already exists in the old list. If it does, just add the new coeff as
+    # a renormalisation. If it doesn't, append the new state to the full list.
+    for coeff, state in tqdm(zip(final_coeffs, final_bstates), total=len(final_bstates), disable=False):
+
+        # convert the modified basis state into a string (such as "1010") in order to
+        # check whether such a state already existed in the initial state, or whether
+        # its a new member. (Comparing lists is harder, so we convert to strings)
+        state_string = "".join([str(i) for i in state])
+
+        if state_string not in new_combinations_strings:
+            new_combinations_strings.append(state_string)
+            new_coeffs = np.append(new_coeffs, coeff)
+        else:
+            new_coeffs[new_combinations_strings.index(state_string)] += coeff
+
+    # convert back from string representation to integer representation.
+    new_combinations = [[int(i) for i in state] for state in new_combinations_strings]
+
+    return new_coeffs / np.linalg.norm(new_coeffs), new_combinations
+
+
+def getWavefunctionRG(init_couplings, alpha_arr, num_entangled, num_IOMs, IOMconfigs, hamiltonianFunc, etaFunc):
+    """ Manager function for obtaining wavefunction RG. 
+    1. init_couplings is the set of couplings that are sufficient to construct the IR Hamiltonian
+       and hence the ground state.
+    2. alpha_arr is the array of Greens function denominators that will be used to construct the 
+       eta operators at various steps of the RG. Each element of alpha_arr can itself be an array. 
+    3. num_entangled is the number of states in the bath that are intended to be part of the emergent 
+       window at the IR.
+    4. num_IOMs is the number of states in the bath that we wish to re-entangle eventually.
+    5. hamiltonianFunc is a string containing the name of a function with a definition 
+       func(mb_basis, num_entangled, init_couplings) that creates a Hamiltonian matrix for the model 
+       at the IR. It must be defined on a per-model basis.
+    6. etaFunc is a string containing the name of a function with a definition etaFunc(alpha, num_entangled)
+       that returns the eta and eta^dag operators given the step-dependent parameters alpha and num_entangled.
+       This function must be defined on a per-model basis.
+    """
+    
+    # make sure there are sufficient number of values provided in alpha_arr to re-entangled num_IOMs.
+    assert len(alpha_arr) >= num_IOMs, """Number of values of 'alpha' is not enough for the
+    requested number of reverse RG steps."""
+
+    assert len(IOMconfigs) >= num_IOMs, """Number of values of IOMconfigs is not enough for the
+    requested number of reverse RG steps."""
+
+    assert False not in [IOMconfig in (0, 1) for IOMconfig in IOMconfigs], """At least one of the 
+    configs provided  for the IOMs is not 0 or 1. Config must be either 0 or 1, representing
+    occupied or unoccupied."""
+
+    # convert the string into function objects
+    hamiltonianFunc = eval(hamiltonianFunc)
+    etaFunc = eval(etaFunc)
+
+    # get the basis of all classical states.
+    mb_basis = get_basis(2 * (1 + num_entangled))
+    
+    # obtain the zero-bandwidth Hamiltonian at the IR
+    hamlt = hamiltonianFunc(mb_basis, num_entangled, init_couplings)
+
+    # obtain the superposition decomposition of the ground state
+    coefficients_init, combinations_init = init_wavefunction(hamlt, mb_basis)
+    
+    # Initialise empty arrays to store the RG flow of the basis states and 
+    # corresponding coefficients at each step of the reverse RG
+    coefficients_arr = np.empty(num_IOMs + 1, dtype=object)
+    combinations_arr = np.empty(num_IOMs + 1, dtype=object)
+    coefficients_arr[0] = coefficients_init
+    combinations_arr[0] = combinations_init
+
+    # loop over the values of alpha and apply the appropriate unitary for each value.
+    for i, (alpha, IOMconfig) in tqdm(enumerate(zip(alpha_arr[:num_IOMs], IOMconfigs[:num_IOMs])), total=num_IOMs, desc="Applying inverse unitaries", disable=True):
+
+        # obtain the renormalised coefficients and the new set of superposition states by passing the coefficients and states
+        # of the previous step, the number of currently entangled states (num_entangled + i), the eta generating function and
+        # the value of alpha at the present step
+        new_coefficients, new_combinations = applyInverseTransform(np.copy(coefficients_arr[i]), np.copy(combinations_arr[i]), 
+                                                                   num_entangled + i, etaFunc, alpha, IOMconfig)
+
+        # append new results to full array
+        coefficients_arr[i+1] = np.array(new_coefficients)
+        combinations_arr[i+1] = np.array(new_combinations)
+
+    return coefficients_arr, combinations_arr
+
+
+def computations(coefficients_arr, combinations_arr, computables):
+    """ Perform various computations by passing the wavefunction RG data.
+    The computables argument is a dictionary, of the examplary form
+    {"VNE": [0,1], "I2": [[0,1],[2,3]]}. Each key is a quantity to calculate,
+    and the list in the value of the key is the set of indices with whom to
+    perform the calculation. For eg., the first key asks to calculate the 
+    von Neumann entanglement entropy for the set of indices (0,1).
+    """
+
+    # initialise a dictionary with the already-provided keys to store the results
+    computations = dict.fromkeys(computables.keys())
+
+    # dictionary for mapping computable names to corresponding functions,
+    funcNameMaps = {"VNE": getEntanglementEntropy,
+                     "I2": getMutualInfo,
+                     }
+
+    # loop over all the computables that have been required
+    # for each computable, loop over the coefficient RG flow
+    # and perform the computation at every RG step.
+    for computable, members in computables.items():
+        # iterator = tqdm(zip(coefficients_arr, combinations_arr, itertools.repeat(members)), total=len(coefficients_arr), desc="Computing {}".format(computable))
+        # computations[computable] = Pool().starmap(funcNameMaps[computable], iterator)
+        iterator = zip(coefficients_arr, combinations_arr, itertools.repeat(members))#, total=len(coefficients_arr), desc="Computing {}".format(computable))
+        computations[computable] = [funcNameMaps[computable](*args) for args in tqdm(iterator, total=len(coefficients_arr), desc="Computing {}".format(computable))]
+    return computations
 
 
 def get_SIAM_hamiltonian(mb_basis, num_bath_sites, couplings):
@@ -269,7 +475,7 @@ def get_Kondo_hamiltonian(mb_basis, num_bath_sites, couplings):
 
     # create the sum_12 Sd^+ S_12^- term, by writing it in terms of c-operators:
     # Sd^+ S_12^- = c^dag_dup c_ddn c^dag_k1dn c_k2up
-    Ham_plus_minus = 0.5 * (get_fermionic_hamiltonian(mb_basis, {'+-+-': [[kondo_J, [0, 1, 2 * k1 + 1, 2 * k2]] for k1,k2 in product(range(1, num_bath_sites + 1), repeat=2)]}))
+    Ham_plus_minus = 0.5 * (get_fermionic_hamiltonian(mb_basis, {'+-+-': [[kondo_J, [0, 1, 2 * k1 + 1, 2 * k2]] for k1,k2 in itertools.product(range(1, num_bath_sites + 1), repeat=2)]}))
 
     H_Bfield = get_fermionic_hamiltonian(mb_basis, {'n': [[0.5 * B_field, [0]], [-0.5 * B_field, [1]]]})
     return ham_KE + Ham_zz + Ham_plus_minus + Ham_plus_minus.H + H_Bfield
@@ -294,10 +500,10 @@ def getReducedDensityMatrix(coeffs, bstates, partiesRemain):
 
     # loop over all paris of basis states of the reduced space, and calcualte 
     # matrix element for each such pair in order to construct the full reduced dmatrix.
-    for (i1, red_bstate1), (i2, red_bstate2) in product(enumerate(red_basis), repeat=2):
+    for (i1, red_bstate1), (i2, red_bstate2) in itertools.product(enumerate(red_basis), repeat=2):
 
         # for each pair of basis states, loop over basis states of the full Hilbert space.
-        for (j1, bstate1), (j2, bstate2) in product(enumerate(bstates), repeat=2):
+        for (j1, bstate1), (j2, bstate2) in itertools.product(enumerate(bstates), repeat=2):
 
             # This is explained by the formula for rho_A provided above.
             if (not False in np.equal(bstate1[partiesRemain], red_bstate1) and
@@ -347,167 +553,6 @@ def getMutualInfo(coeffs, bstates, parties):
     return S_A + S_B - S_AB
 
 
-def applyTermOnBasisState(bstate, int_kind, site_indices):
-    """ Applies a simple operator on a basis state. A simple operator is of the form '+-',[0,1].
-    The first string, passed through the argument int_kind indicates the form of the operator.
-    It can be any operator of any length composed of the characters +,-,n,h. The list [0,1], passed
-    through the argument site_indices, defines the indices of the sites on which the operators will 
-    be applied. The n^th character of the string will act on the n^th element of site_indices. The
-    operator is simple in the sense that there is no summation of multiple operators involved here.
-    """
-
-    # check that the operator is composed only out of +,-,n,h
-    assert False not in [k in ['+', '-', 'n', 'h'] for k in int_kind], "Interaction type not among +, - or n."
-
-    # check that the number of operators in int_kind matches the number of sites in site_indices.
-    assert len(int_kind) == len(site_indices), "Number of site indices in term does not match number of provided interaction types."
-
-    # final_coeff stores any factors that might emerge from applying the operator.
-    final_coeff = 1
-
-    # loop over all characters in the operator string, along with the corresponding site indices.
-    for op, index in zip(int_kind[::-1], site_indices[::-1]):
-
-        # if the character is a number or a hole operator, just give the corresponding occupancy.
-        if op == "n":
-            final_coeff *= bstate[index]
-        elif op == "h":
-            final_coeff *= 1 - bstate[index]
-
-        # if the character is a create or annihilate operator, check if their is room for that.
-        # If not, set final_coeff to zero. If there is, flip the occupancy of the site.
-        elif op == "+":
-            if bstate[index] == 1:
-                final_coeff *= 0
-            else:
-                bstate[index] = 1
-        elif op == "-":
-            if bstate[index] == 0:
-                final_coeff *= 0
-            else:
-                bstate[index] = 0
-
-    return bstate, final_coeff
-        
-    
-def applyOperatorOnState(coeffs, bstates, terms_list):
-    """ Applies a general operator on a general state. The general operator is specified through
-    the terms_list parameter. The description of this parameter has been provided in the docstring
-    of the get_fermionic_hamiltonian function.
-    """
-
-    # initialising the set of basis states and coefficients for the state resulting 
-    # from applying the operator on the given state.
-    final_bstates_strings = []
-    final_coeffs = []
-
-    # loop over all basis states for the given state, to see how the operator acts 
-    # on each such basis state
-    for coeff, bstate in zip(coeffs, bstates):
-
-        # loop over each term (for eg the list [[0.5,[0,1]], [0.4,[1,2]]]) in the full interaction,
-        # so that we can apply each such chunk to each basis state.
-        for int_kind, val in terms_list.items():
-
-            # loop over the various coupling strengths and index sets in each interaction term. In
-            # the above example, coupling takes the values 0.5 and 0.4, while site_indices take the values
-            # [0,1] and [1,2].
-            for coupling, site_indices in val:
-
-                # apply each such operator chunk to each basis state
-                mod_bstate, final_coeff = applyTermOnBasisState(np.copy(bstate), int_kind, site_indices)
-
-                # multiply this result with the coupling strength and any coefficient associated 
-                # with the initial state
-                final_coeff *= coeff * coupling
-
-                # convert the modified basis state into a string (such as "1010") in order to
-                # check whether such a state already existed in the initial state, or whether
-                # its a new member. (Comparing lists is harder, so we convert to strings)
-                mod_bstate_string = "".join([str(i) for i in mod_bstate])
-
-                # if the coefficient after applying the operator is anyways zero, then don't bother
-                if final_coeff == 0:
-                    continue
-                # if the cofficient is not zero, then check if the state string already exists
-                # in the array final_bstates_strings. If does not exist, the append, otherwise just
-                # add the coefficient to the existing coefficient.
-                if mod_bstate_string not in final_bstates_strings: 
-                    final_bstates_strings.append(mod_bstate_string)
-                    final_coeffs.append(final_coeff)
-                else:
-                    final_coeffs[final_bstates_strings.index(mod_bstate_string)] += final_coeff
-
-    # once all the comparisons are done, convert the string representation back to the integer 
-    # list representation.
-    final_bstates = [[int(i) for i in state] for state in final_bstates_strings]
-
-    return final_coeffs, final_bstates
-
-
-def applyInverseTransform(coeffs, bstates, eta, eta_dag):
-    """ Apply the inverse unitary transformation on a state. The transformation is defined
-    as U = 1 + eta + eta^dag.
-    """
-
-    # initialise the new coeffs by copying the old coefficients. This takes care of the 
-    # '1 +' part in the definition above.
-    new_coeffs = np.copy(coeffs)
-
-    # initialise the list of new basis states by copying the old basis states. We also
-    # convert the states into string representation in order to allow for easy comparison.
-    new_combinations_strings = ["".join([str(i) for i in state]) for state in bstates]
-
-    # get the action of eta and etadag by calling predefined functions
-    final_coeffs_eta, final_bstates_eta = applyOperatorOnState(coeffs, bstates, eta)
-    final_coeffs_etadag, final_bstates_etadag = applyOperatorOnState(coeffs, bstates, eta_dag)
-
-    # combine both results into single unified lists
-    final_coeffs = np.concatenate((final_coeffs_eta, final_coeffs_etadag))
-    final_bstates = np.array(list(final_bstates_eta) + list(final_bstates_etadag))
-
-    # loop over this unified list of new states that are obtained after applying eta and eta dag.
-    # check if this new state already exists in the old list. If it does, just add the new coeff as
-    # a renormalisation. If it doesn't, append the new state to the full list.
-    for coeff, state in zip(final_coeffs, final_bstates):
-        state_string = "".join([str(i) for i in state])
-        if state_string not in new_combinations_strings:
-            new_combinations_strings.append(state_string)
-            new_coeffs = np.append(new_coeffs, coeff)
-        else:
-            new_coeffs[new_combinations_strings.index(state_string)] += coeff
-
-    # convert back from string representation to integer representation.
-    new_combinations = [[int(i) for i in state] for state in new_combinations_strings]
-
-    return new_coeffs / np.linalg.norm(new_coeffs), new_combinations
-
-
-def computations(coefficients_arr, combinations_arr, computables):
-    """ Perform various computations by passing the wavefunction RG data.
-    The computables argument is a dictionary, of the examplary form
-    {"VNE": [0,1], "I2": [[0,1],[2,3]]}. Each key is a quantity to calculate,
-    and the list in the value of the key is the set of indices with whom to
-    perform the calculation. For eg., the first key asks to calculate the 
-    von Neumann entanglement entropy for the set of indices (0,1).
-    """
-
-    # initialise a dictionary with the already-provided keys to store the results
-    computations = dict.fromkeys(computables.keys())
-
-    # loop over all the computables that have been required
-    # for each computable, loop over the coefficient RG flow
-    # and perform the computation at every RG step.
-    for computable, members in computables.items():
-        if computable == "VNE":
-            computations[computable] = [getEntanglementEntropy(np.array(coeffs), np.array(combs), members)
-                                        for coeffs, combs in zip(coefficients_arr, combinations_arr)]
-        if computable == "I2":
-            computations[computable] = [getMutualInfo(np.array(coeffs), np.array(combs), members)
-                                        for coeffs, combs in zip(coefficients_arr, combinations_arr)]
-    return computations
-
-
 def getEtaKondo(alpha, num_entangled):
     """ Defines eta and eta dagger operators for the Kondo model.
     """
@@ -539,65 +584,3 @@ def getEtaKondo(alpha, num_entangled):
     return eta_dag, eta
 
 
-def getWavefunctionRG(init_couplings, alpha_arr, num_entangled, num_IOMs, hamiltonianFunc, etaFunc):
-    """ Manager function for obtaining wavefunction RG. 
-    1. init_couplings is the set of couplings that are sufficient to construct the IR Hamiltonian
-       and hence the ground state.
-    2. alpha_arr is the array of Greens function denominators that will be used to construct the 
-       eta operators at various steps of the RG. Each element of alpha_arr can itself be an array. 
-    3. num_entangled is the number of states in the bath that are intended to be part of the emergent 
-       window at the IR.
-    4. num_IOMs is the number of states in the bath that we wish to re-entangle eventually.
-    5. hamiltonianFunc is a string containing the name of a function with a definition 
-       func(mb_basis, num_entangled, init_couplings) that creates a Hamiltonian matrix for the model 
-       at the IR. It must be defined on a per-model basis.
-    6. etaFunc is a string containing the name of a function with a definition etaFunc(alpha, num_entangled)
-       that returns the eta and eta^dag operators given the step-dependent parameters alpha and num_entangled.
-       This function must be defined on a per-model basis.
-    """
-    
-    # make sure there are sufficient number of values provided in alpha_arr to re-entangled num_IOMs.
-    assert len(alpha_arr) >= num_IOMs, "Number of provided values of 'alpha' is not enough for the \
-            required reverse RG steps"
-
-    # convert the string into function objects
-    hamiltonianFunc = eval(hamiltonianFunc)
-    etaFunc = eval(etaFunc)
-
-    # get the basis of all classical states.
-    mb_basis = get_basis(2 * (1 + num_entangled))
-    
-    # obtain the zero-bandwidth Hamiltonian at the IR
-    hamlt = hamiltonianFunc(mb_basis, num_entangled, init_couplings)
-
-    # obtain the superposition decomposition of the ground state
-    coefficients_init, combinations_init = init_wavefunction(hamlt, mb_basis)
-    
-    # these two arrays store the basis states with non-zero coefficients at
-    # each step of the reverse RG
-    coefficients_arr = [coefficients_init]
-    combinations_arr = [combinations_init]
-
-    # loop over the values of alpha and apply the appropriate unitary for each value.
-    for alpha in tqdm(alpha_arr[:num_IOMs], total=num_IOMs, desc="Applying inverse unitaries", disable=False):
-
-        # expand the basis by inserting configurations for the IOMS, in preparation of applying 
-        # the eta,eta^dag on them. 
-        new_combinations = np.array([list(c) + [0, 0] for c in combinations_arr[-1]])
-
-        # initialise the coefficients for the next step by copying from the current step.
-        new_coefficients = np.copy(coefficients_arr[-1])
-
-        # obtain the appropriate eta and eta_dag for this step
-        eta_dag, eta = etaFunc(alpha, num_entangled)
-
-        # apply the renormalised coefficients and the new set of superposition states
-        new_coefficients, new_combinations = applyInverseTransform(new_coefficients, new_combinations, eta, eta_dag)
-
-        # append new results to full array
-        coefficients_arr.append(new_coefficients)
-        combinations_arr.append(new_combinations)
-
-        # increase the number of entangled states by 1, since one of the IOMS has become re-entangled after applying eta
-        num_entangled += 1
-    return coefficients_arr, combinations_arr
