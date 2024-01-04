@@ -41,6 +41,11 @@ from multiprocessing import Pool
 from time import time
 from operator import itemgetter
 
+
+def get_substring(string, sub_indices):
+    return "".join(itemgetter(*sub_indices)(string))
+
+
 def get_basis(num_levels):
     """ The argument num_levels is the total number of qubits
     participating in the Hilbert space. Function returns a basis
@@ -219,14 +224,13 @@ def applyTermOnBasisState(bstate, int_kind, site_indices):
             else:
                 bstate = bstate[:index] + '1' + (bstate[index+1:] if index + 1 < len(bstate) else '')
         elif op == "-":
-            #print (bstate, site_indices)
             if int(bstate[index]) == 0:
                 final_coeff *= 0
             else:
                 bstate = bstate[:index] + '0' + (bstate[index+1:] if index + 1 < len(bstate) else '')
 
     return bstate, final_coeff
-        
+
 
 def applyOperatorOnState(decomposition_old, decomposition_new, terms_list):
     """ Applies a general operator on a general state. The general operator is specified through
@@ -236,7 +240,7 @@ def applyOperatorOnState(decomposition_old, decomposition_new, terms_list):
 
     # loop over all basis states for the given state, to see how the operator acts 
     # on each such basis state
-    for bstate, coeff in tqdm(decomposition_old.items(), disable=True):
+    for bstate, coeff in tqdm(decomposition_old.items(), disable=False):
 
         # loop over each term (for eg the list [[0.5,[0,1]], [0.4,[1,2]]]) in the full interaction,
         # so that we can apply each such chunk to each basis state.
@@ -258,8 +262,6 @@ def applyOperatorOnState(decomposition_old, decomposition_new, terms_list):
                     decomposition_new[mod_bstate] += mod_coeff
                 except:
                     decomposition_new[mod_bstate] = mod_coeff
-                if decomposition_new[mod_bstate] == 0:
-                    del decomposition_new[mod_bstate]
 
     return decomposition_new
 
@@ -280,10 +282,11 @@ def applyInverseTransform(decomposition_old, num_entangled, etaFunc, alpha, IOMc
 
     # get the action of eta and etadag by calling predefined functions
     if IOMconfig == 1:
-        decomposition_new = applyOperatorOnState(decomposition_old, decomposition_new, eta)
+        applyOperatorOnState(decomposition_old, decomposition_new, eta)
     else:
-        decomposition_new = applyOperatorOnState(decomposition_old, decomposition_new, eta_dag)
+        applyOperatorOnState(decomposition_old, decomposition_new, eta_dag)
 
+    decomposition_new = {k: v for k, v in decomposition_new.items() if v != 0}
     total_norm = np.linalg.norm(list(decomposition_new.values()))
 
 
@@ -461,28 +464,17 @@ def getReducedDensityMatrix(coeffs, bstates, partiesRemain):
 
     # get the set of indices that will be traced over by taking the complement of the set partiesRemain.
     partiesTraced = [i for i in range(len(bstates[0])) if i not in partiesRemain]
+    unique_col_labels = set([get_substring(state, partiesTraced) for state in bstates])
+    unique_row_labels = set([get_substring(state, partiesRemain) for state in bstates])
+    col_labels = dict([(label, i) for i, label in enumerate(unique_col_labels)])
+    row_labels = dict([(label, i) for i, label in enumerate(unique_row_labels)])
 
-    # initialise a zero matrix for the reduced density matrix
-    redDenMat = np.zeros([2**len(partiesRemain), 2**len(partiesRemain)])
-
-    # get a classical basis for the reduced Hilbert space of the remaining parties.
-    red_basis = get_basis(len(partiesRemain))
-
-    # loop over all paris of basis states of the reduced space, and calcualte 
-    # matrix element for each such pair in order to construct the full reduced dmatrix.
-    for (i1, red_bstate1), (i2, red_bstate2) in itertools.product(enumerate(red_basis), repeat=2):
-
-        # for each pair of basis states, loop over basis states of the full Hilbert space.
-        for (j1, bstate1), (j2, bstate2) in itertools.product(enumerate(bstates), repeat=2):
-
-            # This is explained by the formula for rho_A provided above.
-            if ("".join(itemgetter(*partiesRemain)(bstate1)) == red_bstate1 and
-                "".join(itemgetter(*partiesRemain)(bstate2)) == red_bstate2
-                ):
-                if (len(partiesTraced ) > 0 and "".join(itemgetter(*partiesTraced)(bstate1)) == "".join(itemgetter(*partiesTraced)(bstate2))
-                ) or len(partiesTraced ) == 0:
-                    redDenMat[i1][i2] += np.conjugate(coeffs[j1]) * coeffs[j2]
-
+    M = np.zeros([2**len(partiesRemain), 2**len(partiesTraced)])
+    for coeff, state in zip(coeffs, bstates):
+        label_row = get_substring(state, partiesRemain)
+        label_col = get_substring(state, partiesTraced)
+        M[row_labels[label_row]][col_labels[label_col]] = coeff
+    redDenMat = np.matmul(M, np.transpose(M))
     redDenMat /= np.trace(redDenMat)
     return redDenMat
 
