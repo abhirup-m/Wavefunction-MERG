@@ -35,9 +35,11 @@ ASSUMPTIONS & CONVENTIONS
 import itertools
 import numpy as np
 import scipy.linalg
+import scipy.sparse.linalg
 from tqdm import tqdm
 from multiprocessing import Pool
 from time import time
+from operator import itemgetter
 
 def get_basis(num_levels):
     """ The argument num_levels is the total number of qubits
@@ -48,7 +50,7 @@ def get_basis(num_levels):
     character represents the configuration (empty or occupied) of
     each single-particle level
     """
-    return np.array([list(l) for l in itertools.product([0,1], repeat=num_levels)])
+    return ["".join(char_arr) for char_arr in itertools.product(["0", "1"], repeat=num_levels)]
 
 
 def init_wavefunction(hamlt, mb_basis):
@@ -60,17 +62,15 @@ def init_wavefunction(hamlt, mb_basis):
    
     eigvals, eigstates = diagonalise(hamlt)
     print ("G-state energy:", eigvals[eigvals == min(eigvals)])
+    print (visualise_state(mb_basis, eigstates[0]))
     
     # ensure that the ground state is not degenerate
     assert sum (eigvals == min(eigvals)) == 1, "Ground state is degenerate!"
     
     # get the classical states and the associated coefficients
-    coefficients, combinations = get_computational_coefficients(mb_basis, eigstates[0])
+    decomposition = get_computational_coefficients(mb_basis, eigstates[0] / np.linalg.norm(eigstates[0]))
 
-    # normalise the coefficients
-    coefficients /= np.linalg.norm(coefficients)
-    
-    return coefficients, combinations
+    return decomposition
     
 
 def visualise_state(mb_basis, state):
@@ -80,11 +80,11 @@ def visualise_state(mb_basis, state):
         1           -1
     """
 
-    computational_coeffs, basis_states = get_computational_coefficients(mb_basis, state)
+    decomposition = get_computational_coefficients(mb_basis, state)
 
-    state_string = "\t\t".join(["|".join([["0", "\u2191", "\u2193", "2"][basis_state[2 * i] + 2 * basis_state[2 * i + 1]] 
-                                          for i in range(len(basis_state) // 2)]) for basis_state in basis_states])
-    coeffs_string = "\t\t".join([str(np.round(coeff, 3)) for coeff in computational_coeffs])
+    state_string = "\t\t".join(["|".join([["0", "\u2191", "\u2193", "2"][int(basis_state[2 * i]) + 2 * int(basis_state[2 * i + 1])] 
+                                          for i in range(len(basis_state) // 2)]) for basis_state in decomposition.keys()])
+    coeffs_string = "\t\t".join([str(np.round(coeff, 3)) for coeff in decomposition.values()])
     return state_string+"\n"+coeffs_string
 
 
@@ -106,11 +106,14 @@ def get_computational_coefficients(basis, state):
     # also filter out the associated basis states.
     non_zero_coeffs = [coeff for coeff in coefficients if coeff != 0]
     non_zero_basis = [b for coeff, b in zip(coefficients, basis) if coeff != 0]
+
+    decomposition = dict([(b, coeff) for coeff, b in zip(coefficients, basis) if coeff != 0])
     
-    return non_zero_coeffs, non_zero_basis
+    return decomposition
 
 
 def get_operator(manybody_basis, int_kind, site_indices):
+
     """ Constructs a matrix operator given a prescription.
     manybody_basis is the set of all possible classical states.
     int_kind is a string that defines the qubit operators taking
@@ -130,18 +133,14 @@ def get_operator(manybody_basis, int_kind, site_indices):
     operator = np.zeros([len(manybody_basis), len(manybody_basis)])
     
     # Goes over all pairs of basis states |b1>, |b2> of the operator in order to obtain each matrix element <b2|O|b1>.
-    for (i_1, b1), (i_2, b2) in itertools.product(enumerate(manybody_basis), repeat=2):
+    for start_index, start_state in enumerate(manybody_basis):
         
         # get the action of 'int_kind' on the state b2
-        modified_b2, mat_ele = applyTermOnBasisState(np.copy(b2), int_kind, site_indices)
+        end_state, mat_ele = applyTermOnBasisState(start_state, int_kind, site_indices)
                     
-        # Since |modified_b2> = O |b2>, matrix element <b1|O|b2> is non-zero
-        # only if <b1|modified_b2> is non-zero, which is possible only if
-        # |modified_b2> = |b1> (they are classical states, no correlations).
-        if False in np.equal(modified_b2, b1):
-            operator[i_1][i_2] = 0
-        else:
-            operator[i_1][i_2] = mat_ele
+        end_index = manybody_basis.index(end_state)
+
+        operator[end_index][start_index] = mat_ele
     return operator
     
     
@@ -181,12 +180,13 @@ def diagonalise(hamlt):
     """
     
     E, v = scipy.linalg.eigh(hamlt)
+    # E, v = scipy.sparse.linalg.eigsh(hamlt, k=2, which='SA')
     return E, [v[:,i] for i in range(len(E))]
 
 
 def applyTermOnBasisState(bstate, int_kind, site_indices):
     """ Applies a simple operator on a basis state. A simple operator is of the form '+-',[0,1].
-    The first string, passed through the argument int_kind indicates the form of the operator.
+    The first string, passed through the argument int_kind, indicates the form of the operator.
     It can be any operator of any length composed of the characters +,-,n,h. The list [0,1], passed
     through the argument site_indices, defines the indices of the sites on which the operators will 
     be applied. The n^th character of the string will act on the n^th element of site_indices. The
@@ -207,40 +207,36 @@ def applyTermOnBasisState(bstate, int_kind, site_indices):
 
         # if the character is a number or a hole operator, just give the corresponding occupancy.
         if op == "n":
-            final_coeff *= bstate[index]
+            final_coeff *= int(bstate[index])
         elif op == "h":
-            final_coeff *= 1 - bstate[index]
+            final_coeff *= 1 - int(bstate[index])
 
         # if the character is a create or annihilate operator, check if their is room for that.
         # If not, set final_coeff to zero. If there is, flip the occupancy of the site.
         elif op == "+":
-            if bstate[index] == 1:
+            if int(bstate[index]) == 1:
                 final_coeff *= 0
             else:
-                bstate[index] = 1
+                bstate = bstate[:index] + '1' + (bstate[index+1:] if index + 1 < len(bstate) else '')
         elif op == "-":
-            if bstate[index] == 0:
+            #print (bstate, site_indices)
+            if int(bstate[index]) == 0:
                 final_coeff *= 0
             else:
-                bstate[index] = 0
+                bstate = bstate[:index] + '0' + (bstate[index+1:] if index + 1 < len(bstate) else '')
 
     return bstate, final_coeff
         
 
-def applyOperatorOnState(coeffs, bstates, terms_list):
+def applyOperatorOnState(decomposition_old, decomposition_new, terms_list):
     """ Applies a general operator on a general state. The general operator is specified through
     the terms_list parameter. The description of this parameter has been provided in the docstring
     of the get_fermionic_hamiltonian function.
     """
 
-    # initialising the set of basis states and coefficients for the state resulting 
-    # from applying the operator on the given state.
-    final_bstates = []
-    final_coeffs = []
-
     # loop over all basis states for the given state, to see how the operator acts 
     # on each such basis state
-    for coeff, bstate in zip(coeffs, bstates):
+    for bstate, coeff in tqdm(decomposition_old.items(), disable=True):
 
         # loop over each term (for eg the list [[0.5,[0,1]], [0.4,[1,2]]]) in the full interaction,
         # so that we can apply each such chunk to each basis state.
@@ -252,68 +248,46 @@ def applyOperatorOnState(coeffs, bstates, terms_list):
             for coupling, site_indices in val:
 
                 # apply each such operator chunk to each basis state
-                mod_bstate, mod_coeff = applyTermOnBasisState(np.copy(bstate), int_kind, site_indices)
+                mod_bstate, mod_coeff = applyTermOnBasisState(bstate, int_kind, site_indices)
 
                 # multiply this result with the coupling strength and any coefficient associated 
                 # with the initial state
                 mod_coeff *= coeff * coupling
 
-                final_bstates.append(mod_bstate)
-                final_coeffs.append(mod_coeff)
+                try:
+                    decomposition_new[mod_bstate] += mod_coeff
+                except:
+                    decomposition_new[mod_bstate] = mod_coeff
+                if decomposition_new[mod_bstate] == 0:
+                    del decomposition_new[mod_bstate]
 
-    return final_coeffs, final_bstates
+    return decomposition_new
 
 
-def applyInverseTransform(coeffs, bstates, num_entangled, etaFunc, alpha, IOMconfig):
+def applyInverseTransform(decomposition_old, num_entangled, etaFunc, alpha, IOMconfig):
     """ Apply the inverse unitary transformation on a state. The transformation is defined
     as U = 1 + eta + eta^dag.
     """
 
     # expand the basis by inserting configurations for the IOMS, in preparation of applying 
     # the eta,eta^dag on them. 
-    bstates = np.array([list(state) + [IOMconfig, IOMconfig] for state in bstates])
+    decomposition_old = dict([(key + str(IOMconfig) + str(IOMconfig), val) for key, val in decomposition_old.copy().items()])
 
     # obtain the appropriate eta and eta_dag for this step
     eta_dag, eta = etaFunc(alpha, num_entangled)
 
-    # initialise the new coeffs by copying the old coefficients. This takes care of the 
-    # '1 +' part in the definition above.
-    new_coeffs = np.copy(coeffs)
-
-    # initialise the list of new basis states by copying the old basis states. We also
-    # convert the states into string representation in order to allow for easy comparison.
-    new_combinations_strings = ["".join([str(i) for i in state]) for state in bstates]
+    decomposition_new = decomposition_old.copy()
 
     # get the action of eta and etadag by calling predefined functions
-    final_coeffs_eta, final_bstates_eta = applyOperatorOnState(coeffs, bstates, eta)
-    final_coeffs_etadag, final_bstates_etadag = applyOperatorOnState(coeffs, bstates, eta_dag)
+    if IOMconfig == 1:
+        decomposition_new = applyOperatorOnState(decomposition_old, decomposition_new, eta)
+    else:
+        decomposition_new = applyOperatorOnState(decomposition_old, decomposition_new, eta_dag)
 
-    # combine both results into single unified lists. If the coefficient after applying the
-    # operator is anyways zero, then don't bother
-    final_coeffs = np.concatenate((final_coeffs_eta, final_coeffs_etadag))
-    final_bstates = np.array(list(final_bstates_eta) + list(final_bstates_etadag))[final_coeffs != 0]
-    final_coeffs = final_coeffs[final_coeffs != 0]
+    total_norm = np.linalg.norm(list(decomposition_new.values()))
 
-    # loop over this unified list of new states that are obtained after applying eta and eta dag.
-    # check if this new state already exists in the old list. If it does, just add the new coeff as
-    # a renormalisation. If it doesn't, append the new state to the full list.
-    for coeff, state in tqdm(zip(final_coeffs, final_bstates), total=len(final_bstates), disable=False):
 
-        # convert the modified basis state into a string (such as "1010") in order to
-        # check whether such a state already existed in the initial state, or whether
-        # its a new member. (Comparing lists is harder, so we convert to strings)
-        state_string = "".join([str(i) for i in state])
-
-        if state_string not in new_combinations_strings:
-            new_combinations_strings.append(state_string)
-            new_coeffs = np.append(new_coeffs, coeff)
-        else:
-            new_coeffs[new_combinations_strings.index(state_string)] += coeff
-
-    # convert back from string representation to integer representation.
-    new_combinations = [[int(i) for i in state] for state in new_combinations_strings]
-
-    return new_coeffs / np.linalg.norm(new_coeffs), new_combinations
+    return decomposition_new
 
 
 def getWavefunctionRG(init_couplings, alpha_arr, num_entangled, num_IOMs, IOMconfigs, hamiltonianFunc, etaFunc):
@@ -355,14 +329,11 @@ def getWavefunctionRG(init_couplings, alpha_arr, num_entangled, num_IOMs, IOMcon
     hamlt = hamiltonianFunc(mb_basis, num_entangled, init_couplings)
 
     # obtain the superposition decomposition of the ground state
-    coefficients_init, combinations_init = init_wavefunction(hamlt, mb_basis)
+    decomposition_init = init_wavefunction(hamlt, mb_basis)
     
     # Initialise empty arrays to store the RG flow of the basis states and 
     # corresponding coefficients at each step of the reverse RG
-    coefficients_arr = np.empty(num_IOMs + 1, dtype=object)
-    combinations_arr = np.empty(num_IOMs + 1, dtype=object)
-    coefficients_arr[0] = coefficients_init
-    combinations_arr[0] = combinations_init
+    decomposition_arr = [decomposition_init]
 
     # loop over the values of alpha and apply the appropriate unitary for each value.
     for i, (alpha, IOMconfig) in tqdm(enumerate(zip(alpha_arr[:num_IOMs], IOMconfigs[:num_IOMs])), total=num_IOMs, desc="Applying inverse unitaries", disable=True):
@@ -370,17 +341,16 @@ def getWavefunctionRG(init_couplings, alpha_arr, num_entangled, num_IOMs, IOMcon
         # obtain the renormalised coefficients and the new set of superposition states by passing the coefficients and states
         # of the previous step, the number of currently entangled states (num_entangled + i), the eta generating function and
         # the value of alpha at the present step
-        new_coefficients, new_combinations = applyInverseTransform(np.copy(coefficients_arr[i]), np.copy(combinations_arr[i]), 
-                                                                   num_entangled + i, etaFunc, alpha, IOMconfig)
+        decomposition_new = applyInverseTransform(decomposition_arr[-1], num_entangled + i, 
+                                                                   etaFunc, alpha, IOMconfig)
 
         # append new results to full array
-        coefficients_arr[i+1] = np.array(new_coefficients)
-        combinations_arr[i+1] = np.array(new_combinations)
+        decomposition_arr.append(decomposition_new)
 
-    return coefficients_arr, combinations_arr
+    return decomposition_arr
 
 
-def computations(coefficients_arr, combinations_arr, computables):
+def computations(decomposition_arr, computables):
     """ Perform various computations by passing the wavefunction RG data.
     The computables argument is a dictionary, of the examplary form
     {"VNE": [0,1], "I2": [[0,1],[2,3]]}. Each key is a quantity to calculate,
@@ -403,8 +373,8 @@ def computations(coefficients_arr, combinations_arr, computables):
     for computable, members in computables.items():
         # iterator = tqdm(zip(coefficients_arr, combinations_arr, itertools.repeat(members)), total=len(coefficients_arr), desc="Computing {}".format(computable))
         # computations[computable] = Pool().starmap(funcNameMaps[computable], iterator)
-        iterator = zip(coefficients_arr, combinations_arr, itertools.repeat(members))#, total=len(coefficients_arr), desc="Computing {}".format(computable))
-        computations[computable] = [funcNameMaps[computable](*args) for args in tqdm(iterator, total=len(coefficients_arr), desc="Computing {}".format(computable))]
+        # iterator = zip(coefficients_arr, combinations_arr, itertools.repeat(members))#, total=len(coefficients_arr), desc="Computing {}".format(computable))
+        computations[computable] = [funcNameMaps[computable](list(decomposition.values()), list(decomposition.keys()), members) for decomposition in tqdm(decomposition_arr, total=len(decomposition_arr), desc="Computing {}".format(computable))]
     return computations
 
 
@@ -506,11 +476,14 @@ def getReducedDensityMatrix(coeffs, bstates, partiesRemain):
         for (j1, bstate1), (j2, bstate2) in itertools.product(enumerate(bstates), repeat=2):
 
             # This is explained by the formula for rho_A provided above.
-            if (not False in np.equal(bstate1[partiesRemain], red_bstate1) and
-                not False in np.equal(bstate2[partiesRemain], red_bstate2) and
-                not False in np.equal(bstate1[partiesTraced], bstate2[partiesTraced])
-               ):
-                redDenMat[i1][i2] += np.conjugate(coeffs[j1]) * coeffs[j2]
+            if ("".join(itemgetter(*partiesRemain)(bstate1)) == red_bstate1 and
+                "".join(itemgetter(*partiesRemain)(bstate2)) == red_bstate2
+                ):
+                if (len(partiesTraced ) > 0 and "".join(itemgetter(*partiesTraced)(bstate1)) == "".join(itemgetter(*partiesTraced)(bstate2))
+                ) or len(partiesTraced ) == 0:
+                    redDenMat[i1][i2] += np.conjugate(coeffs[j1]) * coeffs[j2]
+
+    redDenMat /= np.trace(redDenMat)
     return redDenMat
 
 
@@ -521,9 +494,10 @@ def getEntanglementEntropy(coeffs, bstates, parties):
 
     # get the reduced density matrix
     redDenMat = getReducedDensityMatrix(coeffs, bstates, parties)
+    # print (redDenMat)
 
     # get its spectrum
-    eigvals,_ = diagonalise(redDenMat)
+    eigvals,_ = scipy.linalg.eigh(redDenMat)
 
     # get its non-zero eigenvals
     nonzero_eigvals = eigvals[eigvals > 0]
@@ -531,6 +505,7 @@ def getEntanglementEntropy(coeffs, bstates, parties):
     # calculate von Neumann entropy using the non-zero eigenvals
     entEntropy = -np.sum(nonzero_eigvals * np.log(nonzero_eigvals))
 
+    #print (entEntropy)
     return entEntropy
 
 
