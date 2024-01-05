@@ -37,9 +37,11 @@ import numpy as np
 import scipy.linalg
 import scipy.sparse.linalg
 from tqdm import tqdm
-from multiprocessing import Pool
+import multiprocessing, multiprocessing.sharedctypes
+from multiprocessing import Pool, Process, Manager
 from time import time
 from operator import itemgetter
+import concurrent.futures
 
 
 def get_substring(string, sub_indices):
@@ -232,7 +234,7 @@ def applyTermOnBasisState(bstate, int_kind, site_indices):
     return bstate, final_coeff
 
 
-def applyOperatorOnState(decomposition_old, decomposition_new, terms_list):
+def applyOperatorOnState2(decomposition_old, decomposition_new, terms_list):
     """ Applies a general operator on a general state. The general operator is specified through
     the terms_list parameter. The description of this parameter has been provided in the docstring
     of the get_fermionic_hamiltonian function.
@@ -266,6 +268,65 @@ def applyOperatorOnState(decomposition_old, decomposition_new, terms_list):
     return decomposition_new
 
 
+def applyOperatorOnState(args):
+    """ Applies a general operator on a general state. The general operator is specified through
+    the terms_list parameter. The description of this parameter has been provided in the docstring
+    of the get_fermionic_hamiltonian function.
+    """
+
+    for bstate, coeff, decomposition_new, terms_list in args:
+
+        # loop over each term (for eg the list [[0.5,[0,1]], [0.4,[1,2]]]) in the full interaction,
+        # so that we can apply each such chunk to each basis state.
+        for int_kind, val in terms_list.items():
+
+            # loop over the various coupling strengths and index sets in each interaction term. In
+            # the above example, coupling takes the values 0.5 and 0.4, while site_indices take the values
+            # [0,1] and [1,2].
+            for coupling, site_indices in val:
+
+                # apply each such operator chunk to each basis state
+                mod_bstate, mod_coeff = applyTermOnBasisState(bstate, int_kind, site_indices)
+
+                # multiply this result with the coupling strength and any coefficient associated 
+                # with the initial state
+                mod_coeff *= coeff * coupling
+
+                try:
+                    decomposition_new[mod_bstate] += mod_coeff
+                except:
+                    decomposition_new[mod_bstate] = mod_coeff
+
+    return decomposition_new
+
+
+def getInitState(args):
+    results = []
+    for decomposition_old, decomposition_new, finalState, terms_list in args:
+        old_keys = list(decomposition_old.keys())
+        total_renorm = 0
+        mod_states = []
+        for int_kind, val in terms_list.items():
+
+            # loop over the various coupling strengths and index sets in each interaction term. In
+            # the above example, coupling takes the values 0.5 and 0.4, while site_indices take the values
+            # [0,1] and [1,2].
+            for coupling, site_indices in val:
+
+                # apply each such operator chunk to each basis state
+                mod_bstate, mod_coeff = applyTermOnBasisState(finalState, int_kind, site_indices)
+                mod_states.append(mod_bstate)
+                # mod_states.append(int(mod_bstate, 2))
+                # multiply this result with the coupling strength and any coefficient associated 
+                # with the initial state
+                if mod_bstate in old_keys:
+                    # print (coupling * mod_coeff * decomposition_old[mod_bstate])
+                    total_renorm += coupling * mod_coeff * decomposition_old[mod_bstate]
+
+        results.append([finalState, total_renorm])
+    return results
+
+
 def applyInverseTransform(decomposition_old, num_entangled, etaFunc, alpha, IOMconfig):
     """ Apply the inverse unitary transformation on a state. The transformation is defined
     as U = 1 + eta + eta^dag.
@@ -274,21 +335,34 @@ def applyInverseTransform(decomposition_old, num_entangled, etaFunc, alpha, IOMc
     # expand the basis by inserting configurations for the IOMS, in preparation of applying 
     # the eta,eta^dag on them. 
     decomposition_old = dict([(key + str(IOMconfig) + str(IOMconfig), val) for key, val in decomposition_old.copy().items()])
+    occupancy = sum([int(s) for s in (list(decomposition_old.keys())[0])])
 
     # obtain the appropriate eta and eta_dag for this step
     eta_dag, eta = etaFunc(alpha, num_entangled)
 
-    decomposition_new = decomposition_old.copy()
+    decomposition_new = dict([(state, 0) for state in get_basis(2 * (1 + num_entangled) + 2) if sum([int(s) for s in state]) == occupancy])
+    decomposition_new.update(decomposition_old)
 
     # get the action of eta and etadag by calling predefined functions
-    if IOMconfig == 1:
-        applyOperatorOnState(decomposition_old, decomposition_new, eta)
-    else:
-        applyOperatorOnState(decomposition_old, decomposition_new, eta_dag)
+    terms_list = eta_dag if IOMconfig == 1 else eta
 
-    decomposition_new = {k: v for k, v in decomposition_new.items() if v != 0}
+    args_list = [[decomposition_old, decomposition_new, finalState, terms_list] for finalState in decomposition_new.keys()]
+    # for finalState, total_renorm in [getInitState(decomposition_old, decomposition_new, finalState, terms_list) for finalState in tqdm(decomposition_new.keys())]:
+    with Pool(50) as pool:
+        # num_chunks = min(20, len(args_list))
+        # num_chunks = min(2, len(args_list) / 2)
+        # num_chunks = max(10, int(np.sqrt(len(args_list))))
+        # chunksize = min(len(args_list), 10000)
+        chunksize = min(len(args_list), 200 * num_entangled)
+        # workers = [pool.apply_async(getInitState, (args_list[i * len(args_list) // num_chunks: (i + 1) * len(args_list) // num_chunks], )) for i in range(num_chunks)]
+        workers = [pool.apply_async(getInitState, (args_list[i * chunksize: (i + 1) * chunksize], )) for i in range(len(args_list) // chunksize)]
+        for worker in tqdm(workers):
+            for finalState, total_renorm in tqdm(worker.get(), disable=True):
+                decomposition_new[finalState] += total_renorm
+
     total_norm = np.linalg.norm(list(decomposition_new.values()))
 
+    decomposition_new = {k: v / total_norm for k, v in decomposition_new.items() if v != 0}
 
     return decomposition_new
 
@@ -338,8 +412,12 @@ def getWavefunctionRG(init_couplings, alpha_arr, num_entangled, num_IOMs, IOMcon
     # corresponding coefficients at each step of the reverse RG
     decomposition_arr = [decomposition_init]
 
+    time_list = [0]
+
     # loop over the values of alpha and apply the appropriate unitary for each value.
     for i, (alpha, IOMconfig) in tqdm(enumerate(zip(alpha_arr[:num_IOMs], IOMconfigs[:num_IOMs])), total=num_IOMs, desc="Applying inverse unitaries", disable=True):
+        
+        t = time()
 
         # obtain the renormalised coefficients and the new set of superposition states by passing the coefficients and states
         # of the previous step, the number of currently entangled states (num_entangled + i), the eta generating function and
@@ -349,8 +427,9 @@ def getWavefunctionRG(init_couplings, alpha_arr, num_entangled, num_IOMs, IOMcon
 
         # append new results to full array
         decomposition_arr.append(decomposition_new)
+        time_list.append(time_list[-1] + time() - t)
 
-    return decomposition_arr
+    return decomposition_arr, time_list
 
 
 def computations(decomposition_arr, computables):
@@ -538,7 +617,7 @@ def getEtaKondo(alpha, num_entangled):
             [[alpha, [1, 0, 2 * (num_entangled + 1), 2 * i + 1]] for i in range(1, num_entangled + 1)] + 
             [[alpha, [0, 1, 2 * (num_entangled + 1) + 1, 2 * i]] for i in range(1, num_entangled + 1)]
             }
-    # Simple the hermitian conjugate of each of the lines.
+    # Simply the hermitian conjugate of each of the lines.
     eta = {"n+-": 
            [[alpha, [0, 2 * i, 2 * (num_entangled + 1)]] for i in range(1, num_entangled + 1)] + 
            [[-alpha, [1, 2 * i, 2 * (num_entangled + 1)]] for i in range(1, num_entangled + 1)] +
