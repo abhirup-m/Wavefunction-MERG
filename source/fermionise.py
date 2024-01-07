@@ -206,7 +206,7 @@ def applyTermOnBasisState(bstate, int_kind, site_indices):
     return bstate, final_coeff
 
 
-def applyOperatorOnState(initialState, terms_list, finalState=dict()):
+def applyOperatorOnState(initialState, terms_list, finalState=dict(), silent=True):
     """ Applies a general operator on a general state. The general operator is specified through
     the terms_list parameter. The description of this parameter has been provided in the docstring
     of the get_fermionic_hamiltonian function.
@@ -214,7 +214,7 @@ def applyOperatorOnState(initialState, terms_list, finalState=dict()):
 
     # loop over all basis states for the given state, to see how the operator acts 
     # on each such basis state
-    for bstate, coeff in tqdm(initialState.items(), disable=True):
+    for bstate, coeff in tqdm(initialState.items(), disable=silent):
 
         # loop over each term (for eg the list [[0.5,[0,1]], [0.4,[1,2]]]) in the full interaction,
         # so that we can apply each such chunk to each basis state.
@@ -325,7 +325,6 @@ def getReducedDensityMatrix(genState, partiesRemain):
     rho_A =  sum_ij  sum_{b_B} |psi^A_i><psi^A_j|<b_B|psi^B_i><psi^B_j|b_B>
     """
 
-    print (partiesRemain)
     get_substring = lambda string, sub_indices: "".join(itemgetter(*sub_indices)(string))
 
     # get the set of indices that will be traced over by taking the complement of the set partiesRemain.
@@ -352,7 +351,6 @@ def getEntanglementEntropy(genState, parties):
 
     # get the reduced density matrix
     redDenMat = getReducedDensityMatrix(genState, parties)
-    # print (redDenMat)
 
     # get its spectrum
     eigvals,_ = scipy.linalg.eigh(redDenMat)
@@ -363,7 +361,6 @@ def getEntanglementEntropy(genState, parties):
     # calculate von Neumann entropy using the non-zero eigenvals
     entEntropy = -np.sum(nonzero_eigvals * np.log(nonzero_eigvals))
 
-    #print (entEntropy)
     return entEntropy
 
 

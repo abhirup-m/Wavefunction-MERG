@@ -34,6 +34,7 @@ from tqdm import tqdm
 from multiprocessing import Pool
 from time import time
 from operator import itemgetter
+from fermionise import *
 
 
 def init_wavefunction(hamlt, mb_basis):
@@ -56,7 +57,7 @@ def init_wavefunction(hamlt, mb_basis):
     return decomposition
     
 
-def applyInverseTransform(decomposition_old, num_entangled, etaFunc, alpha, IOMconfig):
+def applyInverseTransform(decomposition_old, num_entangled, etaFunc, alpha, IOMconfig, silent=True):
     """ Apply the inverse unitary transformation on a state. The transformation is defined
     as U = 1 + eta + eta^dag.
     """
@@ -72,9 +73,9 @@ def applyInverseTransform(decomposition_old, num_entangled, etaFunc, alpha, IOMc
 
     # get the action of eta and etadag by calling predefined functions
     if IOMconfig == 1:
-        applyOperatorOnState(decomposition_old, decomposition_new, eta)
+        applyOperatorOnState(decomposition_old, eta, finalState=decomposition_new, silent=silent)
     else:
-        applyOperatorOnState(decomposition_old, decomposition_new, eta_dag)
+        applyOperatorOnState(decomposition_old, eta_dag, finalState=decomposition_new, silent=silent)
 
     total_norm = np.linalg.norm(list(decomposition_new.values()))
     decomposition_new = {k: v / total_norm for k, v in decomposition_new.items() if v != 0}
@@ -83,7 +84,7 @@ def applyInverseTransform(decomposition_old, num_entangled, etaFunc, alpha, IOMc
     return decomposition_new
 
 
-def getWavefunctionRG(init_couplings, alpha_arr, num_entangled, num_IOMs, IOMconfigs, hamiltonianFunc, etaFunc):
+def getWavefunctionRG(init_couplings, alpha_arr, num_entangled, num_IOMs, IOMconfigs, hamiltonianFunc, etaFunc, silent=True):
     """ Manager function for obtaining wavefunction RG. 
     1. init_couplings is the set of couplings that are sufficient to construct the IR Hamiltonian
        and hence the ground state.
@@ -112,11 +113,11 @@ def getWavefunctionRG(init_couplings, alpha_arr, num_entangled, num_IOMs, IOMcon
     occupied or unoccupied."""
 
     # convert the string into function objects
-    hamiltonianFunc = eval(hamiltonianFunc)
-    etaFunc = eval(etaFunc)
+    # hamiltonianFunc = eval(hamiltonianFunc)
+    # etaFunc = eval(etaFunc)
 
     # get the basis of all classical states.
-    mb_basis = get_basis(2 * (1 + num_entangled))
+    mb_basis = getBasis(2 * (1 + num_entangled))
     
     # obtain the zero-bandwidth Hamiltonian at the IR
     hamlt = hamiltonianFunc(mb_basis, num_entangled, init_couplings)
@@ -135,7 +136,7 @@ def getWavefunctionRG(init_couplings, alpha_arr, num_entangled, num_IOMs, IOMcon
         # of the previous step, the number of currently entangled states (num_entangled + i), the eta generating function and
         # the value of alpha at the present step
         decomposition_new = applyInverseTransform(decomposition_arr[-1], num_entangled + i, 
-                                                                   etaFunc, alpha, IOMconfig)
+                                                                   etaFunc, alpha, IOMconfig, silent=silent)
 
         # append new results to full array
         decomposition_arr.append(decomposition_new)
@@ -164,10 +165,7 @@ def computations(decomposition_arr, computables):
     # for each computable, loop over the coefficient RG flow
     # and perform the computation at every RG step.
     for computable, members in computables.items():
-        # iterator = tqdm(zip(coefficients_arr, combinations_arr, itertools.repeat(members)), total=len(coefficients_arr), desc="Computing {}".format(computable))
-        # computations[computable] = Pool().starmap(funcNameMaps[computable], iterator)
-        # iterator = zip(coefficients_arr, combinations_arr, itertools.repeat(members))#, total=len(coefficients_arr), desc="Computing {}".format(computable))
-        computations[computable] = [funcNameMaps[computable](list(decomposition.values()), list(decomposition.keys()), members) for decomposition in tqdm(decomposition_arr, total=len(decomposition_arr), desc="Computing {}".format(computable))]
+        computations[computable] = [funcNameMaps[computable](decomposition, members) for decomposition in tqdm(decomposition_arr, total=len(decomposition_arr), desc="Computing {}".format(computable))]
     return computations
 
 
