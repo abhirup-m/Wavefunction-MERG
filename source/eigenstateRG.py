@@ -34,7 +34,7 @@ from tqdm import tqdm
 from multiprocessing import Pool
 from time import time
 from operator import itemgetter
-from fermionise import *
+from source.fermionise import *
 
 
 def init_wavefunction(hamlt, mb_basis):

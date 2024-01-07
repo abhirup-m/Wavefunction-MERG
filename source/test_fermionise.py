@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from fermionise import *
+from source.fermionise import *
 from itertools import product
 import scipy.linalg
 
