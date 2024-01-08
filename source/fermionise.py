@@ -190,18 +190,11 @@ def applyTermOnBasisState(bstate, int_kind, site_indices):
 
         # if the character is a create or annihilate operator, check if their is room for that.
         # If not, set final_coeff to zero. If there is, flip the occupancy of the site.
-        elif op == "+":
-            if int(bstate[index]) == 1:
-                final_coeff *= 0
-            else:
-                final_coeff *= (-1) ** sum([int(ch) for ch in bstate[:index]])
-                bstate = bstate[:index] + '1' + (bstate[index+1:] if index + 1 < len(bstate) else '')
-        elif op == "-":
-            if int(bstate[index]) == 0:
-                final_coeff *= 0
-            else:
-                final_coeff *= (-1) ** sum([int(ch) for ch in bstate[:index]])
-                bstate = bstate[:index] + '0' + (bstate[index+1:] if index + 1 < len(bstate) else '')
+        elif (op == "+" and int(bstate[index]) == 1) or (op == "-" and int(bstate[index]) == 0):
+            final_coeff *= 0
+        else:
+            final_coeff *= (-1) ** sum([int(ch) for ch in bstate[:index]])
+            bstate = bstate[:index] + str(1 - int(bstate[index])) + (bstate[index+1:] if index + 1 < len(bstate) else '')
 
     return bstate, final_coeff
 
