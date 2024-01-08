@@ -68,30 +68,42 @@ def init_wavefunction(hamlt, mb_basis):
     return decomposition
     
 
-def applyInverseTransform(decomposition_old, num_entangled, etaFunc, alpha, IOMconfig, silent=True):
+def applyInverseTransform(decomposition_old, num_entangled, etaFunc, alpha):
     """ Apply the inverse unitary transformation on a state. The transformation is defined
     as U = 1 + eta + eta^dag.
     """
 
     # expand the basis by inserting configurations for the IOMS, in preparation of applying 
     # the eta,eta^dag on them. 
-    decomposition_old = dict([(key + str(IOMconfig) + str(IOMconfig), val) for key, val in decomposition_old.copy().items()])
+    decomposition_old = dict([(key + "1100", val) for key, val in decomposition_old.copy().items()])
 
     # obtain the appropriate eta and eta_dag for this step
     eta_dag, eta = etaFunc(alpha, num_entangled)
-    terms_list = eta if IOMconfig == 1 else eta_dag
 
-    decomposition_new = decomposition_old.copy()
-    applyOperatorOnState(decomposition_old, terms_list, finalState=decomposition_new, silent=silent)
+    decomposition_new_eta = decomposition_old.copy()
+    decomposition_new_etadag = decomposition_old.copy()
+    
+    with Pool() as pool:
+        worker_eta = pool.apply_async(applyOperatorOnState, (decomposition_old, eta),
+                              kwds={'finalState': decomposition_new_eta})
+        worker_etadag = pool.apply_async(applyOperatorOnState, (decomposition_old, eta_dag),
+                              kwds={'finalState': decomposition_new_etadag} )
+        decomposition_new_eta = worker_eta.get()
+        decomposition_new_etadag = worker_etadag.get()
+        
+        
+    decomposition_new_total = decomposition_new_eta.copy()
+    decomposition_new_total.update(decomposition_new_etadag)
+    
+    total_norm = np.linalg.norm(list(decomposition_new_total.values()))
 
-    total_norm = np.linalg.norm(list(decomposition_new.values()))
-    decomposition_new = {k: v / total_norm for k, v in decomposition_new.items() if v != 0}
+    decomposition_new_total = {k: v / total_norm for k, v in decomposition_new_total.items() if np.abs(v) / total_norm > 1e-5}
 
 
-    return decomposition_new
+    return decomposition_new_total
 
 
-def getWavefunctionRG(init_couplings, alpha_arr, num_entangled, num_IOMs, IOMconfigs, hamiltonianFunc, etaFunc, silent=True):
+def getWavefunctionRG(init_couplings, alpha_arr, num_entangled, num_IOMs, hamiltonianFunc, etaFunc):
     """ Manager function for obtaining wavefunction RG. 
     1. init_couplings is the set of couplings that are sufficient to construct the IR Hamiltonian
        and hence the ground state.
@@ -111,14 +123,7 @@ def getWavefunctionRG(init_couplings, alpha_arr, num_entangled, num_IOMs, IOMcon
     # make sure there are sufficient number of values provided in alpha_arr to re-entangled num_IOMs.
     assert len(alpha_arr) >= num_IOMs, """Number of values of 'alpha' is not enough for the
     requested number of reverse RG steps."""
-
-    assert len(IOMconfigs) >= num_IOMs, """Number of values of IOMconfigs is not enough for the
-    requested number of reverse RG steps."""
-
-    assert False not in [IOMconfig in (0, 1) for IOMconfig in IOMconfigs], """At least one of the 
-    configs provided  for the IOMs is not 0 or 1. Config must be either 0 or 1, representing
-    occupied or unoccupied."""
-
+    
     # convert the string into function objects
     # hamiltonianFunc = eval(hamiltonianFunc)
     # etaFunc = eval(etaFunc)
@@ -137,13 +142,13 @@ def getWavefunctionRG(init_couplings, alpha_arr, num_entangled, num_IOMs, IOMcon
     decomposition_arr = [decomposition_init]
 
     # loop over the values of alpha and apply the appropriate unitary for each value.
-    for i, (alpha, IOMconfig) in tqdm(enumerate(zip(alpha_arr[:num_IOMs], IOMconfigs[:num_IOMs])), total=num_IOMs, desc="Applying inverse unitaries", disable=True):
+    for i, alpha in tqdm(enumerate(alpha_arr[:num_IOMs]), total=num_IOMs, desc="Applying inverse unitaries", disable=True):
 
         # obtain the renormalised coefficients and the new set of superposition states by passing the coefficients and states
         # of the previous step, the number of currently entangled states (num_entangled + i), the eta generating function and
         # the value of alpha at the present step
-        decomposition_new = applyInverseTransform(decomposition_arr[-1], num_entangled + i, 
-                                                                   etaFunc, alpha, IOMconfig, silent=silent)
+        decomposition_new = applyInverseTransform(decomposition_arr[-1], num_entangled + 2 * i,
+                                                  etaFunc, alpha)
 
         # append new results to full array
         decomposition_arr.append(decomposition_new)
@@ -183,18 +188,18 @@ def getEtaKondo(alpha, num_entangled):
     eta_dag = {
             # The first interaction kind is Sdz c^dag qbeta c_kbeta. First two lines are for beta=up,
             # last two lines are for beta=down.
-            "n+-": 
-            [[alpha, [0, 2 * (num_entangled + 1), 2 * i]] for i in range(1, num_entangled + 1)] + 
-            [[-alpha, [1, 2 * (num_entangled + 1), 2 * i]] for i in range(1, num_entangled + 1)] +
-            [[-alpha, [0, 2 * (num_entangled + 1) + 1, 2 * i + 1]] for i in range(1, num_entangled + 1)] + 
-            [[alpha, [1, 2 * (num_entangled + 1) + 1, 2 * i + 1]] for i in range(1, num_entangled + 1)],
+            "n+-":
+            [[alpha, [0, 2 * (num_entangled + 2), 2 * i]] for i in range(1, num_entangled + 1)] + 
+            [[-alpha, [1, 2 * (num_entangled + 2), 2 * i]] for i in range(1, num_entangled + 1)] +
+            [[-alpha, [0, 2 * (num_entangled + 2) + 1, 2 * i + 1]] for i in range(1, num_entangled + 1)] + 
+            [[alpha, [1, 2 * (num_entangled + 2) + 1, 2 * i + 1]] for i in range(1, num_entangled + 1)],
             # The second interaction kind is c^dag_dbetabar c_dbeta c^dag qbeta c_kbetabar. 
             # First line is for beta=up, last line is for beta=down.
-            "+-+-": 
-            [[alpha, [1, 0, 2 * (num_entangled + 1), 2 * i + 1]] for i in range(1, num_entangled + 1)] + 
-            [[alpha, [0, 1, 2 * (num_entangled + 1) + 1, 2 * i]] for i in range(1, num_entangled + 1)]
+            "+-+-":
+            [[alpha, [1, 0, 2 * (num_entangled + 2), 2 * i + 1]] for i in range(1, num_entangled + 1)] + 
+            [[alpha, [0, 1, 2 * (num_entangled + 2) + 1, 2 * i]] for i in range(1, num_entangled + 1)]
             }
-    # Simple the hermitian conjugate of each of the lines.
+    # Simply the hermitian conjugate of each of the lines.
     eta = {"n+-": 
            [[alpha, [0, 2 * i, 2 * (num_entangled + 1)]] for i in range(1, num_entangled + 1)] + 
            [[-alpha, [1, 2 * i, 2 * (num_entangled + 1)]] for i in range(1, num_entangled + 1)] +

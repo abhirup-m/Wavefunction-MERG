@@ -199,7 +199,7 @@ def applyTermOnBasisState(bstate, int_kind, site_indices):
     return bstate, final_coeff
 
 
-def applyOperatorOnState(initialState, terms_list, finalState=dict(), silent=True):
+def applyOperatorOnState(initialState, terms_list, finalState=dict()):
     """ Applies a general operator on a general state. The general operator is specified through
     the terms_list parameter. The description of this parameter has been provided in the docstring
     of the get_fermionic_hamiltonian function.
@@ -207,7 +207,7 @@ def applyOperatorOnState(initialState, terms_list, finalState=dict(), silent=Tru
 
     # loop over all basis states for the given state, to see how the operator acts 
     # on each such basis state
-    for bstate, coeff in tqdm(initialState.items(), disable=silent):
+    for bstate, coeff in tqdm(initialState.items(), disable=False):
 
         # loop over each term (for eg the list [[0.5,[0,1]], [0.4,[1,2]]]) in the full interaction,
         # so that we can apply each such chunk to each basis state.
