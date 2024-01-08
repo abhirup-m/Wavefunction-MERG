@@ -45,16 +45,25 @@ def init_wavefunction(hamlt, mb_basis):
     """
    
     eigvals, eigstates = diagonalise(hamlt)
+    tolerance = 10
+    print (eigvals[:2])
     print ("G-state energy:", eigvals[eigvals == min(eigvals)])
-    print (visualise_state(mb_basis, eigstates[0]))
-    print (visualise_state(mb_basis, eigstates[1]))
-    print (visualise_state(mb_basis, eigstates[2]))
-
-    # ensure that the ground state is not degenerate
-    assert sum (np.round(eigvals, 5) == min(eigvals)) == 1, "Ground state is degenerate!"
+    if sum (np.round(eigvals, tolerance) == min(np.round(eigvals, tolerance))) == 1:
+        gstate = eigstates[0]
+    else:
+        Sz_total_operator = sum([(-1)**i * getOperator(mb_basis, "n", [i]) for i in range(len(mb_basis[0]))])
+        Sz_total_gstates = [get_operator_overlap(state, state, Sz_total_operator)
+                    for state in np.array(eigstates)[np.round(eigvals, tolerance) == min(np.round(eigvals, tolerance))]]
+        print (Sz_total_gstates)
+        if 0 not in Sz_total_gstates:
+            assert False, "Ground state is degenerate! No SU(2)-symmetric ground state exists."
+        else:
+            gstate = eigstates[Sz_total_gstates.index(0)]
+            print ("Warning: Ground state is degenerate! Working with the SU(2)-symmetric state.")
     
+    print (visualise_state(mb_basis, gstate))
     # get the classical states and the associated coefficients
-    decomposition = get_computational_coefficients(mb_basis, eigstates[0] / np.linalg.norm(eigstates[0]))
+    decomposition = get_computational_coefficients(mb_basis, gstate / np.linalg.norm(gstate))
 
     return decomposition
     
