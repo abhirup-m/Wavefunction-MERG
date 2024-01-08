@@ -107,18 +107,23 @@ The reverse RG analysis would now involve starting with some initial set of coef
 \begin{equation}\begin{aligned}
 \rho = \sum_{j,j^\prime}\mathcal{C}_l(s_{j^\prime})^*\mathcal{C}_l(s_{j}) \ket{s_j(d)}\bra{s_{j^\prime}(d)}\ldots\ket{s_j(q)}\bra{s_{j^\prime}(q)}~.
 \end{aligned}\end{equation}
-From this, the reduced density matrix \(\rho(k_p)\) of a particular member \(k_p\) can be obtained as
+For discussions regarding bipartite measures of entanglement, it makes sense to divide the system into two subsystems \(A\) and \(B\), such that the state \(\ket{\Psi}_l\) can be written as
 \begin{equation}\begin{aligned}
-\rho(k_p) = \sum_{s_j(d)=0,1}\ldots\sum_{s_j(k_{p-1})=0,1}\sum_{s_j(k_{p+1})=0,1}\ldots\sum_{s_j(q)=0,1}\mathcal{C}_l(s_{j^\prime})^*\mathcal{C}_l(s_{j})\bra{s_j(q)}\ldots\bra{s_j(d)}\rho\ket{s_j(d)}\ldots\ket{s_j(q)}
+	\label{state_decomposition}
+	\ket{\Psi}_l = \sum_{i_A}\sum_{j_B}C(i_A, j_B)\ket{i_A}\ket{j_B}~,
 \end{aligned}\end{equation}
-The sums are over the occupancies of all the members except \(k_p\). Since all but one qubit has been traced out, the resultant matrix is \(2\times 2\), and its entries \(\rho(k_p)[a,b]\) with \(a,b \in [0,1]\) can be read off from the above expression:
+where \(i_A\) and \(j_B\) sum over the eigenstates of the (potentially many-particle) subsystems \(A\) and \(B\) respectively. From this, the reduced density matrix \(\rho(A)\) for the subsystem \(A\) can be expressed as the partial trace of the full density matrix over the states \(\left\{j_B\right\} \) of system \(B\):
 \begin{equation}\begin{aligned}
-	\rho(k_p)[a,b] = \sum_{j}\mathcal{C}_l^*(s_j;s_j(k_p=a))\mathcal{C}_l(s_j;s_j(k_p=b)); a,b \in [0,1]
+	\rho(A) = \sum_{j_B}\braket{j_B | \rho | j_B} = \sum_{i_A, i^\prime_A,\atop{j_B, j^\prime_B, j^{\prime\prime}_B}} C^*(i_A^\prime, j_B^{\prime\prime})C(i_A, j_B^{\prime})\braket{j^{\prime\prime}_B | j_B}\braket{j_B | j^{\prime}_B}\ket{i_A}\bra{i^\prime_A} = \sum_{i_A, i^\prime_A, j_B}C^*(i^\prime_A, j_B)C(i_A, j_B)\ket{i_A}\bra{i_A^\prime}~.
 \end{aligned}\end{equation}
-Similarly, the reduced density matrix of a two member subspace \(k_p,k_{p^\prime}\) is \(4\times 4\), whose entries are of the form \(\rho(k_p)[(a_1,b_1), (a_2,b_2)]\). Here, \(a_1\) and \(a_2\) represent the occupancy of \(k_p\) while \(b_1\) and \(b_2\) represents the occupancy of \(k_{p^\prime}\). This \(4\times 4\) matrix is given by
+For numerical purposes, this expression can be neatly expressed as the product of a rectangular matrix \(C\) with its hermitian conjugate \(C^\dagger\):
 \begin{equation}\begin{aligned}
-	\rho(k_p)[(a_1,b_1), (a_2,b_2)] = \sum_{j}\mathcal{C}_l^*(s_j;s_j(k_p=a_1),s_j(k_{p^\prime}=b_1))\mathcal{C}_l(s_j;s_j(k_p=a_2),s_j(k_{p^\prime}=b_2)); a_i,b_i \in [0,1]
+	\rho(A) = C C^\dagger~.
 \end{aligned}\end{equation}
+The matrix \(C\) has \(\text{dim}_A\) number of rows and \(n_B\) number of columns, where \(\text{dim}_A\) is the dimension of the Hilbert space of \(A\) and \(n_{B}\) is the number of eigenstates of \(B\) that appear in the complete eigenstate \(\ket{\Psi}_l\) of eq.~\ref{state_decomposition}. The elements of \(C\) are given by \(\braket{i_A | C | j_B} = C_{i_A, j_B}\).
+
+However, the least expensive approach to calculating the reduced density matrix is through the Schmidt coefficients. 
+
 Using these expressions, entanglement measures like entanglement entropy and mutual information can be obtained easily. One might also wish to compute static correlation functions along the RG flow. As an example, the spin-flip correlation between the impurity spin and a single \(k-\) state can be written as
 \begin{equation}\begin{aligned}
 	\braket{\Psi_l | S_d^+S_k^- + \text{h.c.} | \Psi_l} = \sum_j \delta_{s_j(d)=0}\delta_{s_j(k\uparrow)=1}\delta_{s_j(k\downarrow)=0}\mathcal{C}_l(\bar s_j)^*\mathcal{C}_l(s_j) + \text{h.c.}~,

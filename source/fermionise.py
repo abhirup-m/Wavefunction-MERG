@@ -328,21 +328,26 @@ def getReducedDensityMatrix(genState, partiesRemain):
     """
 
     get_substring = lambda string, sub_indices: "".join(itemgetter(*sub_indices)(string))
-
+    
+    remainBasis = getBasis(len(partiesRemain))
+    
     # get the set of indices that will be traced over by taking the complement of the set partiesRemain.
     partiesTraced = [i for i in range(len(list(genState.keys())[0])) if i not in partiesRemain]
-    unique_col_labels = set([get_substring(basisState, partiesTraced) for basisState in genState])
-    unique_row_labels = set([get_substring(basisState, partiesRemain) for basisState in genState])
-    col_labels = dict([(label, i) for i, label in enumerate(unique_col_labels)])
-    row_labels = dict([(label, i) for i, label in enumerate(unique_row_labels)])
-
-    M = np.zeros([2**len(partiesRemain), 2**len(partiesTraced)])
+    
+    dictionary = {}
     for state, coeff in genState.items():
-        label_row = get_substring(state, partiesRemain)
-        label_col = get_substring(state, partiesTraced)
-        M[row_labels[label_row]][col_labels[label_col]] = coeff
-    redDenMat = np.matmul(M, np.transpose(M))
+        lR = get_substring(state, partiesRemain)
+        lT = get_substring(state, partiesTraced)
+        if lT not in dictionary:
+            dictionary[lT] = dict([(state, 0) for state in remainBasis])
+        dictionary[lT][lR] += coeff
+    
+    redDenMat = np.zeros((len(remainBasis), len(remainBasis)))
+    for lT in dictionary:
+        redDenMat += np.outer(list(dictionary[lT].values()), list(dictionary[lT].values()))
+            
     redDenMat /= np.trace(redDenMat)
+
     return redDenMat
 
 

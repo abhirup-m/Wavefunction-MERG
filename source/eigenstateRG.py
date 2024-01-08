@@ -172,7 +172,7 @@ def computations(decomposition_arr, computables):
     # for each computable, loop over the coefficient RG flow
     # and perform the computation at every RG step.
     for computable, members in computables.items():
-        computations[computable] = [funcNameMaps[computable](decomposition, members) for decomposition in tqdm(decomposition_arr, total=len(decomposition_arr), desc="Computing {}".format(computable))]
+        computations[computable] = [funcNameMaps[computable](decomposition, members) for decomposition in tqdm(decomposition_arr, total=len(decomposition_arr), disable=False, desc="Computing {}".format(computable))]
     return computations
 
 
