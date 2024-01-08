@@ -306,9 +306,11 @@ def getKondoHamiltonian(manyBodyBasis, num_bath_sites, couplings):
     # create the sum_k Sdz Skz term, by writing it in terms of number operators. 
     # The first line is n_dup sum_k Skz = n_dup sum_ksigma (-1)^sigma n_ksigma, sigma=(0,1).
     # The second line is -n_ddn sum_k Skz = -n_ddn sum_ksigma (-1)^sigma n_ksigma, sigma=(0,1).
-    Ham_zz = 0.25 * (sum([get_fermionic_hamiltonian(manyBodyBasis, {'nn': [[kondo_J * (-1)**i, [0, 2 + i]]]}) for i in range(2*num_bath_sites)]) 
-                     + sum([get_fermionic_hamiltonian(manyBodyBasis, {'nn': [[-kondo_J * (-1)**i, [1, 2 + i]]]}) for i in range(2*num_bath_sites)]))
-
+    Ham_zz = 0.25 * (sum([get_fermionic_hamiltonian(manyBodyBasis, {'n+-': [[kondo_J, [0, 2 * k1, 2 * k2]]]}) for k1, k2 in itertools.product(range(1, num_bath_sites + 1), repeat=2)])
+                     + sum([get_fermionic_hamiltonian(manyBodyBasis, {'n+-': [[-kondo_J, [0, 2 * k1 + 1, 2 * k2 + 1]]]}) for k1, k2 in itertools.product(range(1, num_bath_sites + 1), repeat=2)])
+                     + sum([get_fermionic_hamiltonian(manyBodyBasis, {'n+-': [[-kondo_J, [1, 2 * k1, 2 * k2]]]}) for k1, k2 in itertools.product(range(1, num_bath_sites + 1), repeat=2)])
+                     + sum([get_fermionic_hamiltonian(manyBodyBasis, {'n+-': [[kondo_J, [1, 2 * k1 + 1, 2 * k2 + 1]]]}) for k1, k2 in itertools.product(range(1, num_bath_sites + 1), repeat=2)])
+                    )
     # create the sum_12 Sd^+ S_12^- term, by writing it in terms of c-operators:
     # Sd^+ S_12^- = c^dag_dup c_ddn c^dag_k1dn c_k2up
     Ham_plus_minus = 0.5 * (get_fermionic_hamiltonian(manyBodyBasis, {'+-+-': [[kondo_J, [0, 1, 2 * k1 + 1, 2 * k2]] for k1,k2 in itertools.product(range(1, num_bath_sites + 1), repeat=2)]}))

@@ -34,7 +34,7 @@ from tqdm import tqdm
 from multiprocessing import Pool
 from time import time
 from operator import itemgetter
-from source.fermionise import *
+from fermionise import *
 
 
 def init_wavefunction(hamlt, mb_basis):
@@ -68,14 +68,10 @@ def applyInverseTransform(decomposition_old, num_entangled, etaFunc, alpha, IOMc
 
     # obtain the appropriate eta and eta_dag for this step
     eta_dag, eta = etaFunc(alpha, num_entangled)
+    terms_list = eta if IOMconfig == 1 else eta_dag
 
     decomposition_new = decomposition_old.copy()
-
-    # get the action of eta and etadag by calling predefined functions
-    if IOMconfig == 1:
-        applyOperatorOnState(decomposition_old, eta, finalState=decomposition_new, silent=silent)
-    else:
-        applyOperatorOnState(decomposition_old, eta_dag, finalState=decomposition_new, silent=silent)
+    applyOperatorOnState(decomposition_old, terms_list, finalState=decomposition_new, silent=silent)
 
     total_norm = np.linalg.norm(list(decomposition_new.values()))
     decomposition_new = {k: v / total_norm for k, v in decomposition_new.items() if v != 0}
