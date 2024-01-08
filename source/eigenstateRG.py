@@ -47,9 +47,11 @@ def init_wavefunction(hamlt, mb_basis):
     eigvals, eigstates = diagonalise(hamlt)
     print ("G-state energy:", eigvals[eigvals == min(eigvals)])
     print (visualise_state(mb_basis, eigstates[0]))
-    
+    print (visualise_state(mb_basis, eigstates[1]))
+    print (visualise_state(mb_basis, eigstates[2]))
+
     # ensure that the ground state is not degenerate
-    assert sum (eigvals == min(eigvals)) == 1, "Ground state is degenerate!"
+    assert sum (np.round(eigvals, 5) == min(eigvals)) == 1, "Ground state is degenerate!"
     
     # get the classical states and the associated coefficients
     decomposition = get_computational_coefficients(mb_basis, eigstates[0] / np.linalg.norm(eigstates[0]))

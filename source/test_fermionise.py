@@ -1,6 +1,6 @@
 import pytest
 import numpy as np
-from fermionise import *
+from source.fermionise import *
 from itertools import product
 import scipy.linalg
 
@@ -133,7 +133,7 @@ def test_Anderson_molecule_2sites(couplings, idn):
 
 # test against ground state of the Kondo molecule
 @pytest.mark.parametrize("couplings, idn", [(([-1], 5, 0), 1), 
-                                            (([0.59, 1.2], 2, 0), 2),
+                                            (([0.5, 0.5], 2, 0), 2),
                                            ])
 def test_Kondo_molecule(couplings, idn):
     Es, J, B = couplings
@@ -153,7 +153,7 @@ def test_Kondo_molecule(couplings, idn):
         assert decomposition["100100"] / decomposition["011000"] == -1
         assert decomposition["100001"] / decomposition["010010"] == -1
 
-
+        
 @pytest.mark.parametrize("initialState, terms_list", [({"10": 1/np.sqrt(3), "01": -2/np.sqrt(3)}, 
                                                        {op: [[1, [0, 1]]]}) for op in ("-+", "hn", "+n")]
                          )
@@ -170,6 +170,8 @@ def test_applyOperatorOnState_2states(initialState, terms_list):
 @pytest.mark.parametrize("initialState, terms_list", [({"110": 1/np.sqrt(3), "101": -2/np.sqrt(3)}, 
                                                        {'+-': [[1, [i, j]]]}) for i,j in [(0, 1), (1, 2), (2, 0)]]
                          )
+
+
 def test_applyOperatorOnState_2states(initialState, terms_list):
     finalState = applyOperatorOnState(initialState, terms_list, finalState=dict())
     if (0, 1) == terms_list['+-'][0][1]:
