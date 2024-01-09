@@ -35,6 +35,9 @@ from multiprocessing import Pool
 from time import time
 from operator import itemgetter
 from fermionise import *
+from random import randint
+import json
+import os
 
 
 def init_wavefunction(hamlt, mb_basis):
@@ -51,7 +54,7 @@ def init_wavefunction(hamlt, mb_basis):
     if sum (np.round(eigvals, tolerance) == min(np.round(eigvals, tolerance))) == 1:
         gstate = eigstates[0]
     else:
-        Sz_total_operator = sum([(-1)**i * getOperator(mb_basis, "n", [i]) for i in range(len(mb_basis[0]))])
+        Sz_total_operator = sum([(-1)**i * getOperator(mb_basis, "n", [i], 1) for i in range(len(mb_basis[0]))])
         Sz_total_gstates = [get_operator_overlap(state, state, Sz_total_operator)
                     for state in np.array(eigstates)[np.round(eigvals, tolerance) == min(np.round(eigvals, tolerance))]]
         print (Sz_total_gstates)
@@ -140,7 +143,7 @@ def getWavefunctionRG(init_couplings, alpha_arr, num_entangled, num_IOMs, hamilt
     # Initialise empty arrays to store the RG flow of the basis states and 
     # corresponding coefficients at each step of the reverse RG
     decomposition_arr = [decomposition_init]
-
+    
     # loop over the values of alpha and apply the appropriate unitary for each value.
     for i, alpha in tqdm(enumerate(alpha_arr[:num_IOMs]), total=num_IOMs, desc="Applying inverse unitaries", disable=True):
 

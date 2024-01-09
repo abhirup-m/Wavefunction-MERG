@@ -35,7 +35,7 @@ from time import time
 from operator import itemgetter
 
 
-def getBasis(num_levels):
+def getBasis(num_levels, nTot=-1):
     """ The argument num_levels is the total number of qubits
     participating in the Hilbert space. Function returns a basis
     of the classical states necessary to express any state as a 
@@ -44,7 +44,13 @@ def getBasis(num_levels):
     character represents the configuration (empty or occupied) of
     each single-particle level
     """
-    return ["".join(char_arr) for char_arr in itertools.product(["0", "1"], repeat=num_levels)]
+    
+    basis = []
+    for char_arr in itertools.product(["0", "1"], repeat=num_levels):
+        if nTot == -1 or sum([int(ch) for ch in char_arr]) == nTot:
+            basis.append("".join(char_arr))
+    
+    return basis
 
 
 def visualise_state(manyBodyBasis, state):
@@ -87,14 +93,14 @@ def getOperator(manyBodyBasis, int_kind, site_indices):
     operator = np.zeros([len(manyBodyBasis), len(manyBodyBasis)])
     
     # Goes over all pairs of basis states |b1>, |b2> of the operator in order to obtain each matrix element <b2|O|b1>.
-    for start_index, start_state in enumerate(manyBodyBasis):
+    for start_index, start_state in tqdm(enumerate(manyBodyBasis), leave=False, disable=True):
         
         # get the action of 'int_kind' on the state b2
         end_state, mat_ele = applyTermOnBasisState(start_state, int_kind, site_indices)
-                    
-        end_index = manyBodyBasis.index(end_state)
 
-        operator[end_index][start_index] = mat_ele
+        if end_state in manyBodyBasis:
+            end_index = manyBodyBasis.index(end_state)
+            operator[end_index][start_index] = mat_ele
     return operator
     
 
@@ -103,21 +109,11 @@ def get_computational_coefficients(basis, state):
     basis states that can express this general state as a superposition. Also returns
     the associated coefficients of the superposition.
     """
-    
-    # For a general state of m particles, first generate the 2**m dimensional basis,
-    # where the states are of the form [1,0,0,...0], [0,1,0,...,0], etc. 
-    computational_basis = [np.concatenate((np.zeros(i), [1], np.zeros(len(basis) - 1 - i))) for i in range(len(basis))]
-    
-    # Obtain the contribution of each such basis state in the superposition by
-    # calculating the overlap of each such state with the general state.
-    coefficients = [np.round(np.inner(basis_state, state), 10) for basis_state in computational_basis]
-    
-    # filter out only those coefficients that are non-zero. 
-    # also filter out the associated basis states.
-    non_zero_coeffs = [coeff for coeff in coefficients if coeff != 0]
-    non_zero_basis = [b for coeff, b in zip(coefficients, basis) if coeff != 0]
-
-    decomposition = dict([(b, coeff) for coeff, b in zip(coefficients, basis) if coeff != 0])
+    assert len(basis) == len(state)
+    decomposition = dict()
+    for i,coeff in enumerate(state):
+        if coeff != 0:
+            decomposition[basis[i]] = coeff
     
     return decomposition
 
@@ -143,22 +139,31 @@ def get_fermionic_hamiltonian(manyBodyBasis, terms_list):
 
     # loop over all keys of the dictionary, equivalent to looping over various terms of the Hamiltonian
     for int_kind, val in terms_list.items():
+
         couplings = [t1 for t1,t2 in val]
         site_indices_all = [t2 for t1,t2 in val]
 
         # for each int_kind, pass the indices of sites to the get_operator function to create the operator 
         # for each such term
-        hamlt += sum([coupling * getOperator(manyBodyBasis, int_kind, site_indices) for coupling, site_indices in zip(couplings, site_indices_all)])
+        hamlt += sum([coupling * getOperator(manyBodyBasis, int_kind, site_indices) for coupling, site_indices in tqdm(zip(couplings, site_indices_all), total=len(couplings), desc="Obtaining operators for " + int_kind + " .")])
     return np.matrix(hamlt)
 
 
-def diagonalise(hamlt):
+def diagonalise(basis, hamlt):
     """ Diagonalise the provided Hamiltonian matrix.
     Returns all eigenvals and states.
     """
     
+    print (1)
     E, v = scipy.linalg.eigh(hamlt)
-    return E, [v[:,i] for i in range(len(E))]
+    print (2)
+    with Pool() as pool:
+        workers = [pool.apply_async(get_computational_coefficients, (basis, v[:,i])) for i in range(len(E))]
+        eigstates = [worker.get() for worker in tqdm(workers, desc="Expressing state in terms of basis.")]
+    # for i in tqdm(range(len(E)), desc="Expressing state in terms of basis."):
+    #     eigstates.append(get_computational_coefficients(basis, v[:,i]))
+    print (3)
+    return E, eigstates
 
 
 def applyTermOnBasisState(bstate, int_kind, site_indices):
@@ -299,13 +304,12 @@ def getKondoHamiltonian(manyBodyBasis, num_bath_sites, couplings):
     # create the sum_k Sdz Skz term, by writing it in terms of number operators. 
     # The first line is n_dup sum_k Skz = n_dup sum_ksigma (-1)^sigma n_ksigma, sigma=(0,1).
     # The second line is -n_ddn sum_k Skz = -n_ddn sum_ksigma (-1)^sigma n_ksigma, sigma=(0,1).
-    Ham_zz = 0.25 * (sum([get_fermionic_hamiltonian(manyBodyBasis, {'n+-': [[kondo_J, [0, 2 * k1, 2 * k2]]]}) for k1, k2 in itertools.product(range(1, num_bath_sites + 1), repeat=2)])
-                     + sum([get_fermionic_hamiltonian(manyBodyBasis, {'n+-': [[-kondo_J, [0, 2 * k1 + 1, 2 * k2 + 1]]]}) for k1, k2 in itertools.product(range(1, num_bath_sites + 1), repeat=2)])
-                     + sum([get_fermionic_hamiltonian(manyBodyBasis, {'n+-': [[-kondo_J, [1, 2 * k1, 2 * k2]]]}) for k1, k2 in itertools.product(range(1, num_bath_sites + 1), repeat=2)])
-                     + sum([get_fermionic_hamiltonian(manyBodyBasis, {'n+-': [[kondo_J, [1, 2 * k1 + 1, 2 * k2 + 1]]]}) for k1, k2 in itertools.product(range(1, num_bath_sites + 1), repeat=2)])
-                    )
-    # create the sum_12 Sd^+ S_12^- term, by writing it in terms of c-operators:
-    # Sd^+ S_12^- = c^dag_dup c_ddn c^dag_k1dn c_k2up
+    zz_terms = (sum([], [[kondo_J, [0, 2 * k1, 2 * k2]] for k1, k2 in itertools.product(range(1, num_bath_sites + 1), repeat=2)]) 
+                + sum([], [[-kondo_J, [0, 2 * k1 + 1, 2 * k2 + 1]] for k1, k2 in itertools.product(range(1, num_bath_sites + 1), repeat=2)])
+                + sum([], [[-kondo_J, [1, 2 * k1, 2 * k2]] for k1, k2 in itertools.product(range(1, num_bath_sites + 1), repeat=2)])
+                + sum([], [[kondo_J, [1, 2 * k1 + 1, 2 * k2 + 1]] for k1, k2 in itertools.product(range(1, num_bath_sites + 1), repeat=2)])
+               )
+    Ham_zz = 0.25 * get_fermionic_hamiltonian(manyBodyBasis, {'n+-': zz_terms})
     Ham_plus_minus = 0.5 * (get_fermionic_hamiltonian(manyBodyBasis, {'+-+-': [[kondo_J, [0, 1, 2 * k1 + 1, 2 * k2]] for k1,k2 in itertools.product(range(1, num_bath_sites + 1), repeat=2)]}))
 
     H_Bfield = get_fermionic_hamiltonian(manyBodyBasis, {'n': [[0.5 * B_field, [0]], [-0.5 * B_field, [1]]]})
