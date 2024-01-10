@@ -29,8 +29,8 @@ ASSUMPTIONS & CONVENTIONS
 import itertools
 import numpy as np
 import scipy.linalg
-from tqdm import tqdm
-from multiprocessing import Pool
+from tqdm import tqdm_notebook as tqdm
+from multiprocessing.pool import ThreadPool as Pool
 from time import time
 from operator import itemgetter
 
@@ -127,7 +127,7 @@ def matrixElement(finalState, operator, initState):
     operator between the states initState and finalState  
     """
     intermediateState = applyOperatorOnState(initState, operator)
-    matElement = InnerProduct(finalState, intermediateState)
+    matElement = innerProduct(finalState, intermediateState)
     return matElement 
 
 
@@ -206,7 +206,7 @@ def applyTermOnBasisState(bstate, int_kind, site_indices):
     return bstate, final_coeff
 
 
-def applyOperatorOnState(initialState, terms_list, finalState=dict()):
+def applyOperatorOnState(initialState, terms_list, finalState=dict(), tqdmDesc=None):
     """ Applies a general operator on a general state. The general operator is specified through
     the terms_list parameter. The description of this parameter has been provided in the docstring
     of the get_fermionic_hamiltonian function.
@@ -214,7 +214,7 @@ def applyOperatorOnState(initialState, terms_list, finalState=dict()):
 
     # loop over all basis states for the given state, to see how the operator acts 
     # on each such basis state
-    for bstate, coeff in tqdm(initialState.items(), disable=False):
+    for bstate, coeff in tqdm(initialState.items(), disable=False, desc=tqdmDesc):
 
         # loop over each term (for eg the list [[0.5,[0,1]], [0.4,[1,2]]]) in the full interaction,
         # so that we can apply each such chunk to each basis state.
@@ -237,7 +237,7 @@ def applyOperatorOnState(initialState, terms_list, finalState=dict()):
                         finalState[mod_bstate] += mod_coeff
                     except:
                         finalState[mod_bstate] = mod_coeff
-
+ 
     return finalState
 
 

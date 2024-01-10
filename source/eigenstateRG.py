@@ -30,8 +30,8 @@ import itertools
 import numpy as np
 import scipy.linalg
 import scipy.sparse.linalg
-from tqdm import tqdm
-from multiprocessing import Pool
+from tqdm import tqdm_notebook as tqdm
+from multiprocessing.pool import ThreadPool as Pool
 from time import time
 from operator import itemgetter
 from fermionise import *
@@ -40,7 +40,7 @@ import json
 import os
 
 
-def init_wavefunction(hamlt, mb_basis):
+def init_wavefunction(hamlt, mb_basis, displayGstate=False):
     """ Generates the initial wavefunction at the fixed point by diagonalising
     the Hamiltonian provided as argument. Expresses the state as a superposition
     of various classical states, returns these states and the associated coefficients.
@@ -56,7 +56,8 @@ def init_wavefunction(hamlt, mb_basis):
     else:
         assert False, "Ground state is degenerate! No SU(2)-symmetric ground state exists."
     
-    print (visualise_state(mb_basis, gstate))
+    if displayGstate:
+        print (visualise_state(mb_basis, gstate))
 
     return gstate
     
@@ -78,9 +79,11 @@ def applyInverseTransform(decomposition_old, num_entangled, etaFunc, alpha):
     
     with Pool() as pool:
         worker_eta = pool.apply_async(applyOperatorOnState, (decomposition_old, eta),
-                              kwds={'finalState': decomposition_new_eta})
+                              kwds={'finalState': decomposition_new_eta, 
+                                    'tqdmDesc': "Applying eta, size=" + str(num_entangled)})
         worker_etadag = pool.apply_async(applyOperatorOnState, (decomposition_old, eta_dag),
-                              kwds={'finalState': decomposition_new_etadag} )
+                              kwds={'finalState': decomposition_new_etadag,
+                                    'tqdmDesc': "Applying eta^dag, size=" + str(num_entangled)})
         decomposition_new_eta = worker_eta.get()
         decomposition_new_etadag = worker_etadag.get()
         
@@ -96,7 +99,7 @@ def applyInverseTransform(decomposition_old, num_entangled, etaFunc, alpha):
     return decomposition_new_total
 
 
-def getWavefunctionRG(init_couplings, alpha_arr, num_entangled, num_IOMs, hamiltonianFunc, etaFunc):
+def getWavefunctionRG(init_couplings, alpha_arr, num_entangled, num_IOMs, hamiltonianFunc, etaFunc, displayGstate=False):
     """ Manager function for obtaining wavefunction RG. 
     1. init_couplings is the set of couplings that are sufficient to construct the IR Hamiltonian
        and hence the ground state.
@@ -128,7 +131,7 @@ def getWavefunctionRG(init_couplings, alpha_arr, num_entangled, num_IOMs, hamilt
     hamlt = hamiltonianFunc(mb_basis, num_entangled, init_couplings)
 
     # obtain the superposition decomposition of the ground state
-    decomposition_init = init_wavefunction(hamlt, mb_basis)
+    decomposition_init = init_wavefunction(hamlt, mb_basis, displayGstate=displayGstate)
     
     # Initialise empty arrays to store the RG flow of the basis states and 
     # corresponding coefficients at each step of the reverse RG
@@ -182,24 +185,24 @@ def getEtaKondo(alpha, num_entangled):
             # The first interaction kind is Sdz c^dag qbeta c_kbeta. First two lines are for beta=up,
             # last two lines are for beta=down.
             "n+-":
-            [[alpha, [0, 2 * (num_entangled + 2), 2 * i]] for i in range(1, num_entangled + 1)] + 
-            [[-alpha, [1, 2 * (num_entangled + 2), 2 * i]] for i in range(1, num_entangled + 1)] +
-            [[-alpha, [0, 2 * (num_entangled + 2) + 1, 2 * i + 1]] for i in range(1, num_entangled + 1)] + 
-            [[alpha, [1, 2 * (num_entangled + 2) + 1, 2 * i + 1]] for i in range(1, num_entangled + 1)],
+            [[0.25 * alpha, [0, 2 * (num_entangled + 2), 2 * i]] for i in range(1, num_entangled + 1)] + 
+            [[-0.25 * alpha, [1, 2 * (num_entangled + 2), 2 * i]] for i in range(1, num_entangled + 1)] +
+            [[-0.25 * alpha, [0, 2 * (num_entangled + 2) + 1, 2 * i + 1]] for i in range(1, num_entangled + 1)] + 
+            [[0.25 * alpha, [1, 2 * (num_entangled + 2) + 1, 2 * i + 1]] for i in range(1, num_entangled + 1)],
             # The second interaction kind is c^dag_dbetabar c_dbeta c^dag qbeta c_kbetabar. 
             # First line is for beta=up, last line is for beta=down.
             "+-+-":
-            [[alpha, [1, 0, 2 * (num_entangled + 2), 2 * i + 1]] for i in range(1, num_entangled + 1)] + 
-            [[alpha, [0, 1, 2 * (num_entangled + 2) + 1, 2 * i]] for i in range(1, num_entangled + 1)]
+            [[0.5 * alpha, [1, 0, 2 * (num_entangled + 2), 2 * i + 1]] for i in range(1, num_entangled + 1)] + 
+            [[0.5 * alpha, [0, 1, 2 * (num_entangled + 2) + 1, 2 * i]] for i in range(1, num_entangled + 1)]
             }
     # Simply the hermitian conjugate of each of the lines.
     eta = {"n+-": 
-           [[alpha, [0, 2 * i, 2 * (num_entangled + 1)]] for i in range(1, num_entangled + 1)] + 
-           [[-alpha, [1, 2 * i, 2 * (num_entangled + 1)]] for i in range(1, num_entangled + 1)] +
-           [[-alpha, [0, 2 * i + 1, 2 * (num_entangled + 1) + 1]] for i in range(1, num_entangled + 1)] + 
-           [[alpha, [1, 2 * i + 1, 2 * (num_entangled + 1) + 1]] for i in range(1, num_entangled + 1)],
+           [[0.25 * alpha, [0, 2 * i, 2 * (num_entangled + 1)]] for i in range(1, num_entangled + 1)] + 
+           [[-0.25 * alpha, [1, 2 * i, 2 * (num_entangled + 1)]] for i in range(1, num_entangled + 1)] +
+           [[-0.25 * alpha, [0, 2 * i + 1, 2 * (num_entangled + 1) + 1]] for i in range(1, num_entangled + 1)] + 
+           [[0.25 * alpha, [1, 2 * i + 1, 2 * (num_entangled + 1) + 1]] for i in range(1, num_entangled + 1)],
            "+-+-": 
-           [[alpha, [0, 1, 2 * i + 1, 2 * (num_entangled + 1)]] for i in range(1, num_entangled + 1)] + 
-           [[alpha, [1, 0, 2 * i, 2 * (num_entangled + 1) + 1]] for i in range(1, num_entangled + 1)]
+           [[0.5 * alpha, [0, 1, 2 * i + 1, 2 * (num_entangled + 1)]] for i in range(1, num_entangled + 1)] + 
+           [[0.5 * alpha, [1, 0, 2 * i, 2 * (num_entangled + 1) + 1]] for i in range(1, num_entangled + 1)]
           }
     return eta_dag, eta
