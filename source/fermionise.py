@@ -53,18 +53,15 @@ def getBasis(num_levels, nTot=-1):
     return basis
 
 
-def visualise_state(manyBodyBasis, state):
+def visualise_state(manyBodyBasis, stateDecomposition):
     """ Gives a handy visualisation for a many-body vector 'state'. manyBodyBasis is the complete
     basis for the associated system. For a state |up,dn> - |dn,up>, the visualisation is of the form
         up|dn       dn|up
         1           -1
     """
-
-    decomposition = get_computational_coefficients(manyBodyBasis, state)
-
     state_string = "\t\t".join(["|".join([["0", "\u2191", "\u2193", "2"][int(basis_state[2 * i]) + 2 * int(basis_state[2 * i + 1])] 
-                                          for i in range(len(basis_state) // 2)]) for basis_state in decomposition.keys()])
-    coeffs_string = "\t\t".join([str(np.round(coeff, 3)) for coeff in decomposition.values()])
+                                          for i in range(len(basis_state) // 2)]) for basis_state in stateDecomposition.keys()])
+    coeffs_string = "\t\t".join([str(np.round(coeff, 3)) for coeff in stateDecomposition.values()])
     return state_string+"\n"+coeffs_string
 
 
@@ -118,13 +115,23 @@ def get_computational_coefficients(basis, state):
     return decomposition
 
 
-def get_operator_overlap(init_state, final_state, operator):
-    """ Calculates the overlap <final_state | operator | init_state>.
+def innerProduct(state2, state1):
+    """ Calculates the overlap <state2 | state1>.
     """
-    return np.dot(final_state, np.dot(operator, init_state))  
+    innerProduct = sum([np.conjugate(state2[bstate]) * state1[bstate] for bstate in state1 if bstate in state2])
+    return innerProduct
     
     
-def get_fermionic_hamiltonian(manyBodyBasis, terms_list):
+def matrixElement(finalState, operator, initState):
+    """ Calculates the matrix element <final_state | operator | init_state> of an
+    operator between the states initState and finalState  
+    """
+    intermediateState = applyOperatorOnState(initState, operator)
+    matElement = InnerProduct(finalState, intermediateState)
+    return matElement 
+    
+    
+def fermionicHamiltonian(manyBodyBasis, terms_list):
     """ Creates a matrix Hamiltonian from the specification provided in terms_list. terms_list is a dictionary
     of the form {['+','-']: [[1.1, [0,1]], [0.9, [1,2]], [2, [3,1]]], ['n']: [[1, [0]], [0.5, [1]], [1.2, [2]], [2, [3]]]}.
     Each key represents a specific type of interaction, such as c^dag c or n. The value associated with that key 
@@ -154,15 +161,10 @@ def diagonalise(basis, hamlt):
     Returns all eigenvals and states.
     """
     
-    print (1)
     E, v = scipy.linalg.eigh(hamlt)
-    print (2)
     with Pool() as pool:
         workers = [pool.apply_async(get_computational_coefficients, (basis, v[:,i])) for i in range(len(E))]
         eigstates = [worker.get() for worker in tqdm(workers, desc="Expressing state in terms of basis.")]
-    # for i in tqdm(range(len(E)), desc="Expressing state in terms of basis."):
-    #     eigstates.append(get_computational_coefficients(basis, v[:,i]))
-    print (3)
     return E, eigstates
 
 
@@ -258,24 +260,24 @@ def get_SIAM_hamiltonian(manyBodyBasis, num_bath_sites, couplings):
 
     # create kinetic energy term, by looping over all bath site indices 2,3,...,2*num_bath_sites+1,
     # where 0 and 1 are reserved for the impurity orbitals and must therefore be skipped.
-    ham_KE = get_fermionic_hamiltonian(manyBodyBasis, {'n': [[Ek[i - 2], [i]] for i in range(2, 2 * num_bath_sites + 2)]})
+    ham_KE = fermionicHamiltonian(manyBodyBasis, {'n': [[Ek[i - 2], [i]] for i in range(2, 2 * num_bath_sites + 2)]})
 
     # create the impurity-bath hopping terms, by looping over the up orbital indices i = 2, 4, 6, ..., 2*num_bath_sites,
     # and obtaining the corresponding down orbital index as i + 1. The four terms are c^dag_dup c_kup, h.c., c^dag_ddn c_kdn, h.c.
-    ham_hop = (get_fermionic_hamiltonian(manyBodyBasis, {'+-': [[hop_strength, [0, i]] for i in range(2, 2 * num_bath_sites + 2, 2)]}) 
-               + get_fermionic_hamiltonian(manyBodyBasis, {'+-': [[hop_strength, [i, 0]] for i in range(2, 2 * num_bath_sites + 2, 2)]})
-               + get_fermionic_hamiltonian(manyBodyBasis, {'+-': [[hop_strength, [1, i + 1]] for i in range(2, 2 * num_bath_sites + 2, 2)]})
-               + get_fermionic_hamiltonian(manyBodyBasis, {'+-': [[hop_strength, [i + 1, 1]] for i in range(2, 2 * num_bath_sites + 2, 2)]})
+    ham_hop = (fermionicHamiltonian(manyBodyBasis, {'+-': [[hop_strength, [0, i]] for i in range(2, 2 * num_bath_sites + 2, 2)]}) 
+               + fermionicHamiltonian(manyBodyBasis, {'+-': [[hop_strength, [i, 0]] for i in range(2, 2 * num_bath_sites + 2, 2)]})
+               + fermionicHamiltonian(manyBodyBasis, {'+-': [[hop_strength, [1, i + 1]] for i in range(2, 2 * num_bath_sites + 2, 2)]})
+               + fermionicHamiltonian(manyBodyBasis, {'+-': [[hop_strength, [i + 1, 1]] for i in range(2, 2 * num_bath_sites + 2, 2)]})
               )
 
     # create the impurity local terms for Ed, U and B
-    ham_imp = (get_fermionic_hamiltonian(manyBodyBasis, {'n': [[imp_Ed, [0]], [imp_Ed, [1]]]}) 
-               + get_fermionic_hamiltonian(manyBodyBasis, {'nn': [[imp_U, [0, 1]]]})
-               + get_fermionic_hamiltonian(manyBodyBasis, {'n': [[0.5 * imp_Bfield, [0]]]})
-               + get_fermionic_hamiltonian(manyBodyBasis, {'n': [[-0.5 * imp_Bfield, [1]]]})
+    ham_imp = (fermionicHamiltonian(manyBodyBasis, {'n': [[imp_Ed, [0]], [imp_Ed, [1]]]}) 
+               + fermionicHamiltonian(manyBodyBasis, {'nn': [[imp_U, [0, 1]]]})
+               + fermionicHamiltonian(manyBodyBasis, {'n': [[0.5 * imp_Bfield, [0]]]})
+               + fermionicHamiltonian(manyBodyBasis, {'n': [[-0.5 * imp_Bfield, [1]]]})
               )
 
-    ham_zerothsite = get_fermionic_hamiltonian(manyBodyBasis, {'nn': [[zerothsite_U, [2, 3]]]})
+    ham_zerothsite = fermionicHamiltonian(manyBodyBasis, {'nn': [[zerothsite_U, [2, 3]]]})
 
     return ham_KE + ham_hop + ham_imp + ham_zerothsite
 
@@ -299,7 +301,7 @@ def getKondoHamiltonian(manyBodyBasis, num_bath_sites, couplings):
 
     # create kinetic energy term, by looping over all bath site indices 2,3,...,2*num_bath_sites+1,
     # where 0 and 1 are reserved for the impurity orbitals and must therefore be skipped.
-    ham_KE = get_fermionic_hamiltonian(manyBodyBasis, {'n': [[Ek[i - 2], [i]] for i in range(2, 2 * num_bath_sites + 2)]})
+    ham_KE = fermionicHamiltonian(manyBodyBasis, {'n': [[Ek[i - 2], [i]] for i in range(2, 2 * num_bath_sites + 2)]})
 
     # create the sum_k Sdz Skz term, by writing it in terms of number operators. 
     # The first line is n_dup sum_k Skz = n_dup sum_ksigma (-1)^sigma n_ksigma, sigma=(0,1).
@@ -309,10 +311,10 @@ def getKondoHamiltonian(manyBodyBasis, num_bath_sites, couplings):
                 + sum([], [[-kondo_J, [1, 2 * k1, 2 * k2]] for k1, k2 in itertools.product(range(1, num_bath_sites + 1), repeat=2)])
                 + sum([], [[kondo_J, [1, 2 * k1 + 1, 2 * k2 + 1]] for k1, k2 in itertools.product(range(1, num_bath_sites + 1), repeat=2)])
                )
-    Ham_zz = 0.25 * get_fermionic_hamiltonian(manyBodyBasis, {'n+-': zz_terms})
-    Ham_plus_minus = 0.5 * (get_fermionic_hamiltonian(manyBodyBasis, {'+-+-': [[kondo_J, [0, 1, 2 * k1 + 1, 2 * k2]] for k1,k2 in itertools.product(range(1, num_bath_sites + 1), repeat=2)]}))
+    Ham_zz = 0.25 * fermionicHamiltonian(manyBodyBasis, {'n+-': zz_terms})
+    Ham_plus_minus = 0.5 * (fermionicHamiltonian(manyBodyBasis, {'+-+-': [[kondo_J, [0, 1, 2 * k1 + 1, 2 * k2]] for k1,k2 in itertools.product(range(1, num_bath_sites + 1), repeat=2)]}))
 
-    H_Bfield = get_fermionic_hamiltonian(manyBodyBasis, {'n': [[0.5 * B_field, [0]], [-0.5 * B_field, [1]]]})
+    H_Bfield = fermionicHamiltonian(manyBodyBasis, {'n': [[0.5 * B_field, [0]], [-0.5 * B_field, [1]]]})
     return ham_KE + Ham_zz + Ham_plus_minus + Ham_plus_minus.H + H_Bfield
 
 

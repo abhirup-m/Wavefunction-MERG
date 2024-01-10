@@ -67,9 +67,9 @@ def test_Anderson_molecule(couplings, idn):
     Es, V, U, Ed, B, Ub = couplings
     manyBodyBasis = getBasis(4)
     hamlt = get_SIAM_hamiltonian(manyBodyBasis, 1, couplings)
-    eigenvals, eigstates = diagonalise(hamlt)
+    eigenvals, eigstates = diagonalise(manyBodyBasis, hamlt)
     gsenergy = pytest.approx(eigenvals[0])
-    decomposition = get_computational_coefficients(manyBodyBasis, eigstates[0])
+    decomposition = eigstates[0]
     if idn == 1:
         matrix = np.array([[Ed + Es[0], np.sqrt(2) * V, np.sqrt(2) * V],
                            [np.sqrt(2) * V, 2 * Ed + U, 0],
@@ -108,9 +108,9 @@ def test_Anderson_molecule_2sites(couplings, idn):
     Es, V, U, Ed, B, Ub = couplings
     manyBodyBasis = getBasis(6)
     hamlt = get_SIAM_hamiltonian(manyBodyBasis, 2, couplings)
-    eigenvals, eigstates = diagonalise(hamlt)
+    eigenvals, eigstates = diagonalise(manyBodyBasis, hamlt)
     gsenergy = pytest.approx(eigenvals[0])
-    decomposition = get_computational_coefficients(manyBodyBasis, eigstates[0])
+    decomposition = eigstates[0]
     if idn == 1:
         matrix = np.array([[Ed + Es[0], 2 * V, 2 * V],
                            [2 * V, 2 * Ed + U, 0],
@@ -140,18 +140,17 @@ def test_Kondo_molecule(couplings, idn):
     num_bath_sites = idn
     manyBodyBasis = getBasis(2 * (1 + num_bath_sites))
     hamlt = getKondoHamiltonian(manyBodyBasis, num_bath_sites, couplings)
-    eigenvals, eigstates = diagonalise(hamlt)
+    eigenvals, eigstates = diagonalise(manyBodyBasis, hamlt)
     gsenergy = pytest.approx(eigenvals[0])
-    decomposition = get_computational_coefficients(manyBodyBasis, eigstates[0])
+    decomposition = eigstates[0]
     filling = getOperator(manyBodyBasis, 'n', [2])
-    print (decomposition, get_operator_overlap(eigstates[0], eigstates[0], filling))
     if idn == 1:
-        assert decomposition["1001"] / decomposition["0110"] == -1
-        assert np.abs(decomposition["1001"]) == np.abs(decomposition["0110"]) == pytest.approx(1/np.sqrt(2))
+        assert pytest.approx(decomposition["1001"] / decomposition["0110"]) == -1
+        assert pytest.approx(np.abs(decomposition["1001"])) == pytest.approx(np.abs(decomposition["0110"])) == 1/np.sqrt(2)
         assert gsenergy == -3 * J / 4 + Es[0]
     if idn == 2:
-        assert decomposition["100100"] / decomposition["011000"] == -1
-        assert decomposition["100001"] / decomposition["010010"] == -1
+        assert pytest.approx(decomposition["100100"] / decomposition["011000"]) == -1
+        assert pytest.approx(decomposition["100001"] / decomposition["010010"]) == -1
 
         
 @pytest.mark.parametrize("initialState, terms_list", [({"10": 1/np.sqrt(3), "01": -2/np.sqrt(3)}, 
