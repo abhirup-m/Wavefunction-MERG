@@ -129,8 +129,8 @@ def matrixElement(finalState, operator, initState):
     intermediateState = applyOperatorOnState(initState, operator)
     matElement = InnerProduct(finalState, intermediateState)
     return matElement 
-    
-    
+
+
 def fermionicHamiltonian(manyBodyBasis, terms_list):
     """ Creates a matrix Hamiltonian from the specification provided in terms_list. terms_list is a dictionary
     of the form {['+','-']: [[1.1, [0,1]], [0.9, [1,2]], [2, [3,1]]], ['n']: [[1, [0]], [0.5, [1]], [1.2, [2]], [2, [3]]]}.
@@ -153,7 +153,7 @@ def fermionicHamiltonian(manyBodyBasis, terms_list):
         # for each int_kind, pass the indices of sites to the get_operator function to create the operator 
         # for each such term
         hamlt += sum([coupling * getOperator(manyBodyBasis, int_kind, site_indices) for coupling, site_indices in tqdm(zip(couplings, site_indices_all), total=len(couplings), desc="Obtaining operators for " + int_kind + " .")])
-    return np.matrix(hamlt)
+    return np.array(hamlt)
 
 
 def diagonalise(basis, hamlt):
@@ -315,7 +315,7 @@ def getKondoHamiltonian(manyBodyBasis, num_bath_sites, couplings):
     Ham_plus_minus = 0.5 * (fermionicHamiltonian(manyBodyBasis, {'+-+-': [[kondo_J, [0, 1, 2 * k1 + 1, 2 * k2]] for k1,k2 in itertools.product(range(1, num_bath_sites + 1), repeat=2)]}))
 
     H_Bfield = fermionicHamiltonian(manyBodyBasis, {'n': [[0.5 * B_field, [0]], [-0.5 * B_field, [1]]]})
-    return ham_KE + Ham_zz + Ham_plus_minus + Ham_plus_minus.H + H_Bfield
+    return ham_KE + Ham_zz + Ham_plus_minus + np.conj(np.transpose(Ham_plus_minus)) + H_Bfield
 
 
 def getReducedDensityMatrix(genState, partiesRemain):
