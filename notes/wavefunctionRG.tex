@@ -55,10 +55,15 @@ A straightforward way of calculating entanglement and correlations across the RG
 \section{Evolution equation for tensor network coefficients}
 We will now show a more efficient method of computing quantities along the reverse RG operations. We will demonstrate this for the much simpler single-channel Kondo problem (which can be obtained from our model by setting all interactions apart from the Kondo coupling \(J\) to zero). For this, we will first have to perform some analytical groundwork. The URG transition operators for re-entangling the states at momentum \(q\) take the form
 \begin{equation}\begin{aligned}
-	\eta_{q\beta}^\dagger = \alpha(q)\sum_{k} \left( S_d^z \beta c^\dagger_{q\beta}c_{k\beta} + c^\dagger_{d\overline\beta}c_{d\beta}c^\dagger_{q\beta}c_{k\overline\beta}\right) ~,\\
-	\eta_{q\beta} = \alpha(q)\sum_{k} \left( S_d^z \beta c^\dagger_{k\beta}c_{q\beta} + c^\dagger_{d\beta}c_{d\overline\beta}c^\dagger_{k\overline\beta}c_{q\beta}\right)~,
+	\eta_{q\beta}^\dagger = \alpha(q)\sum_{k} \left( S_d^z \beta \frac{1}{2}c^\dagger_{q\beta}c_{k\beta} + \frac{1}{2}c^\dagger_{d\overline\beta}c_{d\beta}c^\dagger_{q\beta}c_{k\overline\beta}\right) ~,\\
+	\eta_{q\beta} = \alpha(q)\sum_{k} \left( S_d^z \beta \frac{1}{2}c^\dagger_{k\beta}c_{q\beta} + \frac{1}{2}c^\dagger_{d\beta}c_{d\overline\beta}c^\dagger_{k\overline\beta}c_{q\beta}\right)~,
 \end{aligned}\end{equation}
-for the Kondo problem, where we have defined \(\alpha(q) = \frac{1}{d_2}\frac{J}{2}\). Let \((m_l)\) \(n_l\) be the number of momentum states that are (not) entangled with the impurity at the \(l^\text{th}\) step. The total dimension of the system is then \(N_l = 1 + 2m_l + 2n_l\), where \(1\) takes care of the impurity spin and the factors of 2 account for the spin degeneracy. We can write the groundstate at this step in the form
+for the Kondo problem, where we have defined 
+\begin{equation}\begin{aligned}
+	\alpha(q) = \frac{J}{\omega - H_D}~,
+\end{aligned}\end{equation}
+as the product of the amplitude \(J\) of the interaction vertex
+Let \((m_l)\) \(n_l\) be the number of momentum states that are (not) entangled with the impurity at the \(l^\text{th}\) step. The total dimension of the system is then \(N_l = 1 + 2m_l + 2n_l\), where \(1\) takes care of the impurity spin and the factors of 2 account for the spin degeneracy. We can write the groundstate at this step in the form
 \begin{equation}\begin{aligned}
 	\ket{\Psi}_l = \sum_{j=1}^{2^{N_l}} \mathcal{C}_l(s_j)\ket{\sigma^z_d=s_j(d)}\otimes_{i=1}^{m_l}\ket{n_{k_i}=s_j(k_i) }\otimes_{i=1}^{n_l}\ket{n_{q_i}=s_j(q_i)}\label{tensordecomposition}
 \end{aligned}\end{equation}

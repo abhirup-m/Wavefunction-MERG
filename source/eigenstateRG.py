@@ -30,7 +30,7 @@ import itertools
 import numpy as np
 import scipy.linalg
 import scipy.sparse.linalg
-from tqdm import tqdm_notebook as tqdm
+from tqdm.notebook import tqdm
 from multiprocessing.pool import ThreadPool as Pool
 from time import time
 from operator import itemgetter
@@ -77,7 +77,7 @@ def applyInverseTransform(decomposition_old, num_entangled, etaFunc, alpha):
     decomposition_new_eta = decomposition_old.copy()
     decomposition_new_etadag = decomposition_old.copy()
     
-    with Pool() as pool:
+    with Pool(1) as pool:
         worker_eta = pool.apply_async(applyOperatorOnState, (decomposition_old, eta),
                               kwds={'finalState': decomposition_new_eta, 
                                     'tqdmDesc': "Applying eta, size=" + str(num_entangled)})

@@ -29,8 +29,9 @@ ASSUMPTIONS & CONVENTIONS
 import itertools
 import numpy as np
 import scipy.linalg
-from tqdm import tqdm_notebook as tqdm
-from multiprocessing.pool import ThreadPool as Pool
+from tqdm.notebook import tqdm
+# from multiprocessing.pool import ThreadPool as Pool
+from multiprocessing import Pool
 from time import time
 from operator import itemgetter
 
@@ -237,7 +238,9 @@ def applyOperatorOnState(initialState, terms_list, finalState=dict(), tqdmDesc=N
                         finalState[mod_bstate] += mod_coeff
                     except:
                         finalState[mod_bstate] = mod_coeff
- 
+                    print (bstate, mod_bstate, mod_coeff, coeff * coupling)
+                    print ()
+                           
     return finalState
 
 
