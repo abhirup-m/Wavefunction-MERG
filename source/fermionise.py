@@ -328,13 +328,17 @@ def getReducedDensityMatrix(genState, partiesRemain):
     rho_A =  sum_ij  sum_{b_B} |psi^A_i><psi^A_j|<b_B|psi^B_i><psi^B_j|b_B>
     """
 
+    if len(partiesRemain) == len(list(genState.keys())[0]):
+        redDenMat = np.outer(list(genState.values()), list(genState.values()))
+        return redDenMat
+    
     get_substring = lambda string, sub_indices: "".join(itemgetter(*sub_indices)(string))
     
     remainBasis = getBasis(len(partiesRemain))
     
     # get the set of indices that will be traced over by taking the complement of the set partiesRemain.
-    partiesTraced = [i for i in range(len(list(genState.keys())[0])) if i not in partiesRemain]
-    
+    partiesTraced = [i for i in range(len(list(genState.keys())[0])) if i not in partiesRemain]      
+
     dictionary = {}
     for state, coeff in genState.items():
         lR = get_substring(state, partiesRemain)
