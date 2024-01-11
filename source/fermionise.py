@@ -30,7 +30,6 @@ import itertools
 import numpy as np
 import scipy.linalg
 from tqdm.notebook import tqdm
-# from multiprocessing.pool import ThreadPool as Pool
 from multiprocessing import Pool
 from time import time
 from operator import itemgetter
@@ -91,7 +90,7 @@ def getOperator(manyBodyBasis, int_kind, site_indices):
     operator = np.zeros([len(manyBodyBasis), len(manyBodyBasis)])
     
     # Goes over all pairs of basis states |b1>, |b2> of the operator in order to obtain each matrix element <b2|O|b1>.
-    for start_index, start_state in tqdm(enumerate(manyBodyBasis), leave=False, disable=True):
+    for start_index, start_state in enumerate(manyBodyBasis):
         
         # get the action of 'int_kind' on the state b2
         end_state, mat_ele = applyTermOnBasisState(start_state, int_kind, site_indices)
