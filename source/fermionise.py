@@ -127,7 +127,7 @@ def matrixElement(finalState, operator, initState):
     operator between the states initState and finalState  
     """
     intermediateState = applyOperatorOnState(initState, operator, finalState=dict())
-    matElement = innerProduct(finalState, intermediateState, finalState=dict())
+    matElement = innerProduct(finalState, intermediateState)
     return matElement 
 
 
