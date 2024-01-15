@@ -5,15 +5,15 @@ using SharedArrays
 @everywhere using ProgressMeter
 @everywhere using SharedArrays, Distributed
 
-function BasisStates(numLevels::Int, totOccupancy::Int=nothing, totSpin::Float64=nothing)
+function BasisStates(numLevels::Int, totOccupancy=-999, totSpin=-999)
 	basisStates = String[]
 	for i in 0:2^(numLevels)-1
 		state = lpad(string(i, base=2), numLevels, '0')
         stateTotOccupancy = sum([parse(Int, ch) for ch in state])
         stateTotSpin = 0.5 * (sum([parse(Int, ch) for ch in state[1:2:end]]) 
             - sum([parse(Int, ch) for ch in state[2:2:end]]))
-		if ((isnothing(totOccupancy) || stateTotOccupancy == totOccupancy)
-            && (isnothing(totSpin) || stateTotSpin == totSpin))
+		if ((totOccupancy == -999 || stateTotOccupancy == totOccupancy)
+            && (totSpin == -999 || stateTotSpin == totSpin))
 			push!(basisStates, state)
 		end
 	end
@@ -112,34 +112,4 @@ function GeneralOperatorMatrix(basisStates, operatorList)
     argsList = [(startIndex, basisStates, operatorList, lengthBasis) for startIndex in 1:lengthBasis]
     generalOperatorMatrix = stack(@showprogress pmap(helper, argsList, batch_size=10))
 	return generalOperatorMatrix
-end
-
-
-function KondoHamiltonian(basisStates, numBathSites, couplings)
-    if length(basisStates) == 0
-        println("Chosen basis is empty, bailing out.")
-        return
-    end
-	(kineticEnergy, kondoCoupling) = couplings
-	@assert length(kineticEnergy) == numBathSites
-	kineticEnergy = repeat(kineticEnergy, inner=2)
-	upIndices = range(3, 2 * numBathSites + 1, step=2)
-
-	operatorList = []
-	
-	for (k1, k2) in Iterators.product(upIndices, upIndices)
-		push!(operatorList, (0.25 * kondoCoupling / numBathSites, "n+-", (1, k1, k2)))
-		push!(operatorList, (-0.25 * kondoCoupling / numBathSites, "n+-", (1, k1 + 1, k2 + 1)))
-		push!(operatorList, (-0.25 * kondoCoupling / numBathSites, "n+-", (2, k1, k2)))
-		push!(operatorList, (0.25 * kondoCoupling / numBathSites, "n+-", (2, k1 + 1, k2 + 1)))
-		push!(operatorList, (0.5 * kondoCoupling / numBathSites, "+-+-", (1, 2, k1 + 1, k2)))
-		push!(operatorList, (0.5 * kondoCoupling / numBathSites, "+-+-", (2, 1, k1, k2 + 1)))
-	end
-
-    for upIndex in upIndices
-		push!(operatorList, (kineticEnergy[upIndex - 2], "n", (upIndex,)))
-		push!(operatorList, (kineticEnergy[upIndex - 1], "n", (upIndex + 1,)))
-	end
-
-	return GeneralOperatorMatrix(basisStates, operatorList)
 end
