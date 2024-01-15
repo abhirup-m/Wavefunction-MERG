@@ -12,7 +12,7 @@ function ReducedDensityMatrix(genState::Dict{String, Float64}, partiesRemain::Ve
     partiesTraced = setdiff(1:length(collect(keys(genState))[1]), partiesRemain)
 
     stateTracedBasis = Dict()
-    for (state, coeff) in genState
+    @showprogress for (state, coeff) in genState
         labelRemain = state[partiesRemain]
         labelTraced = state[partiesTraced]
         if ! haskey(stateTracedBasis, labelTraced) 
@@ -29,7 +29,7 @@ function ReducedDensityMatrix(genState::Dict{String, Float64}, partiesRemain::Ve
     return redDenMat
 end
 
-function EntanglementEntropy(genState, parties)
+function EntanglementEntropy(genState, parties::Vector{Int64})
     redDenMat = ReducedDensityMatrix(genState, parties)
 
     eigenvalues = eigvals(Hermitian(redDenMat))
@@ -41,12 +41,11 @@ function EntanglementEntropy(genState, parties)
     return entEntropy
 end
 
-function MutualInfo(genState, parties)
-    @assert length(parties) == 2
+function MutualInfo(genState, partiesA::Vector{Int64}, partiesB::Vector{Int64})
 
-    S_A = EntanglementEntropy(genState, parties[1])
-    S_B = EntanglementEntropy(genState, parties[2])
-    S_AB = EntanglementEntropy(genState, list(parties[1]) + list(parties[2]))
+    S_A = EntanglementEntropy(genState, partiesA)
+    S_B = EntanglementEntropy(genState, partiesB)
+    S_AB = EntanglementEntropy(genState, [partiesA; partiesB])
 
     return S_A + S_B - S_AB
 end
