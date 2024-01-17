@@ -28,7 +28,7 @@ function KondoHamiltonian(basisStates, numBathSites, couplings)
 end
 
 
-function TOSHamiltonianRSpace(basisStates, numSitesChain, couplings)
+function TOSHamiltonianRSpace(basisStates, couplings, show_progress=true)
     # imup    imdn    A1up    A1dn    B1up    B1dn    A2up    A2dn    B2up    B2dn
     # 0       1       2       3       4       5       6       7       8       9
     # forward hoppings: 2 --> 6, 3 --> 7, 4 --> 8, 5 --> 9 
@@ -37,36 +37,50 @@ function TOSHamiltonianRSpace(basisStates, numSitesChain, couplings)
     # impurity correlation: n: 0, n: 1, nn: 01
     # bath correlation: n: 2, n: 3, nn: 23, n: 4, n: 5, nn: 45
     
-    (t_hop, hop_strength, imp_U, t_perp, bath_Ub) = couplings
-    
+    t_hop, hop_strength, imp_U, t_perp, bath_Ub, Bfield = couplings
+    numSitesChain = div(length(basisStates[1]) - 2, 4)
     operatorList = []
 
+    if Bfield != 0 
+    for i in 1:2 + 4 * numSitesChain 
+        push!(operatorList, [(-1)^i * Bfield, "n", (i,)])
+    end
+    end
+
+    
+    if t_hop != 0 
     for i in 3:6 + 4 * (numSitesChain - 2)
-        push!(operatorList, [-t_hop, "+-", [i, i+4]])
-        push!(operatorList, [-t_hop, "+-", [i+4, i]])
+        push!(operatorList, [-t_hop, "+-", (i, i+4)])
+        push!(operatorList, [-t_hop, "+-", (i+4, i)])
+    end
     end
 
+    if t_perp != 0
     for i in 3:4:3 + 4 * (numSitesChain - 1)
-        push!(operatorList, [-t_perp, "+-", [i, i+2]])
-        push!(operatorList, [-t_perp, "+-", [i+2, i]])
-        push!(operatorList, [-t_perp, "+-", [i+1, i+3]])
-        push!(operatorList, [-t_perp, "+-", [i+3, i+1]])
+        push!(operatorList, [-t_perp, "+-", (i, i+2)])
+        push!(operatorList, [-t_perp, "+-", (i+2, i)])
+        push!(operatorList, [-t_perp, "+-", (i+1, i+3)])
+        push!(operatorList, [-t_perp, "+-", (i+3, i+1)])
+    end
     end
 
+    if hop_strength != 0
     for i in [1 2]
         for j in [2, 4]
-            println([i; i+j])
-            push!(operatorList, [hop_strength, "+-", [i, i + j]])
-            push!(operatorList, [hop_strength, "+-", [i + j, i]])
+            push!(operatorList, [hop_strength, "+-", (i, i + j)])
+            push!(operatorList, [hop_strength, "+-", (i + j, i)])
         end
     end
+    end
 
-    for i in [1 3 4]
+    if imp_U  != 0 || bath_Ub != 0
+    for i in [1 3 5]
         corr = i == 1 ? imp_U : bath_Ub
-        push!(operatorList, [-0.5 * corr, "n", [i]])
-        push!(operatorList, [-0.5 * corr, "n", [i+1]])
-        push!(operatorList, [corr, "nn", [i, i+1]])
+        push!(operatorList, [-0.5 * corr, "n", (i,)])
+        push!(operatorList, [-0.5 * corr, "n", (i+1,)])
+        push!(operatorList, [corr, "nn", (i, i+1)])
+    end
     end
     
-    return GeneralOperatorMatrix(basisStates, operatorList)
+    return GeneralOperatorMatrix(basisStates, operatorList, show_progress)
 end

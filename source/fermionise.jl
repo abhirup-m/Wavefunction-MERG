@@ -21,15 +21,15 @@ function BasisStates(numLevels::Int, totOccupancy=-999, totSpin=-999)
 end
 
 
-function InnerProduct(genStateLeft::Dict{String, Float64}, genStateRight::Dict{String, Float64})
-	innerProduct = sum([conj(genStateLeft[key]) * genStateRight[key] for (key, value) in genStateRight])
+function InnerProduct(genStateLeft::Dict, genStateRight::Dict)
+	innerProduct = sum([conj(genStateLeft[key]) * genStateRight[key] for (key, value) in genStateRight if haskey(genStateLeft, key)])
     return innerProduct
 end
-    
-    
+
+
 function ComputationalCoefficients(basisStates::Vector{String}, genState)
     @assert length(basisStates) == length(genState)
-    stateDecompose = Dict([(basisStates[i], coeff) for (i, coeff) in enumerate(genState)])
+    stateDecompose = Dict([(basisStates[i], coeff) for (i, coeff) in enumerate(genState) if abs(coeff) > 0])
     return stateDecompose
 end
 
@@ -79,7 +79,7 @@ end
 function ApplyOperatorOnState(genState, operatorList)
 	finalState = Dict()
 	for (basisState, basisCoefficient) in genState
-		for (operatorChunk, couplingStrength, siteIndices) in eachrow(operatorList)
+		for (couplingStrength, operatorChunk, siteIndices) in eachrow(operatorList)
 			modifiedBasisState, prefactor = ApplyChunkOnBasisState(basisState, operatorChunk, siteIndices)
 			if haskey(finalState, modifiedBasisState)
 				finalState[modifiedBasisState] += prefactor * basisCoefficient * couplingStrength
@@ -88,7 +88,6 @@ function ApplyOperatorOnState(genState, operatorList)
 			end
 		end
 	end
-                           
 	return finalState
 end
 
@@ -107,9 +106,26 @@ end
 end
 
 
-function GeneralOperatorMatrix(basisStates, operatorList)
+function GeneralOperatorMatrix(basisStates, operatorList, show_progress=true)
 	lengthBasis = length(basisStates)
     argsList = [(startIndex, basisStates, operatorList, lengthBasis) for startIndex in 1:lengthBasis]
-    generalOperatorMatrix = stack(@showprogress pmap(helper, argsList, batch_size=10))
+    generalOperatorMatrix = stack(@showprogress enabled=show_progress pmap(helper, argsList, batch_size=10))
 	return generalOperatorMatrix
 end
+
+function ComputeCorrelations(basisStates, hamiltonianFunction, couplingsArray, computables)
+    computableResults = [zeros(length(couplingsArray)) for i in computables]
+    pbar = Progress(length(couplingsArray))
+    for (i, couplings) in enumerate(couplingsArray)
+        hamiltonian = hamiltonianFunction(basisStates, couplings, false)
+        E, X = diagonalise(basisStates, hamiltonian)
+        for (j, (operatorChunk, indices)) in enumerate(eachrow(computables))
+            computableResults[j][i] = MatrixElement(X[1], [1 operatorChunk indices], X[1])
+        end
+        next!(pbar)
+    end
+    return computableResults
+end
+
+
+    
