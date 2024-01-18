@@ -35,7 +35,7 @@ end
 
 
 function MatrixElement(leftState::Dict{String, Float64}, operatorList, rightState::Dict{String, Float64})
-    return InnerProduct(leftState, ApplyOperatorOnState(rightState, operatorList)) 
+    return InnerProduct(leftState, ApplyOperatorOnState((rightState, operatorList))) 
 end
 
 
@@ -76,10 +76,11 @@ function diagonalise(basisStates, matrix)
 end
 
 
-function ApplyOperatorOnState(genState, operatorList)
+@everywhere function ApplyOperatorOnState(args)
+    genState, operatorList = args
 	finalState = Dict()
-	for (basisState, basisCoefficient) in genState
-		for (couplingStrength, operatorChunk, siteIndices) in eachrow(operatorList)
+	for (basisState, basisCoefficient) in collect(genState)
+		for (couplingStrength, operatorChunk, siteIndices) in operatorList
 			modifiedBasisState, prefactor = ApplyChunkOnBasisState(basisState, operatorChunk, siteIndices)
 			if haskey(finalState, modifiedBasisState)
 				finalState[modifiedBasisState] += prefactor * basisCoefficient * couplingStrength
