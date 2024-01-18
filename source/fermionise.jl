@@ -113,14 +113,18 @@ function GeneralOperatorMatrix(basisStates, operatorList, show_progress=true)
 	return generalOperatorMatrix
 end
 
-function ComputeCorrelations(basisStates, hamiltonianFunction, couplingsArray, computables)
-    computableResults = [zeros(length(couplingsArray)) for i in computables]
+
+function ComputeCorrelations(basisStates, hamiltonianFunction, couplingsArray, computables, entanglementMeasures)
+    computableResults = [zeros(length(couplingsArray)) for i in 1:(length(computables) + length(entanglementMeasures))]
     pbar = Progress(length(couplingsArray))
     for (i, couplings) in enumerate(couplingsArray)
         hamiltonian = hamiltonianFunction(basisStates, couplings, false)
         E, X = diagonalise(basisStates, hamiltonian)
-        for (j, (operatorChunk, indices)) in enumerate(eachrow(computables))
+        for (j, (operatorChunk, indices)) in enumerate(computables)
             computableResults[j][i] = MatrixElement(X[1], [1 operatorChunk indices], X[1])
+        end
+        for (j, (measure, indices)) in enumerate(entanglementMeasures)
+            computableResults[j + length(computables)][i] = mapToFunction(measure)(X[1], indices)
         end
         next!(pbar)
     end

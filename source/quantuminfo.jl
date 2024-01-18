@@ -1,7 +1,6 @@
 using LinearAlgebra
 
-function ReducedDensityMatrix(genState::Dict{String, Float64}, partiesRemain::Vector{Int64})
-
+function ReducedDensityMatrix(genState::Dict{String, Float64}, partiesRemain)
     if length(partiesRemain) == length(genState)
         redDenMat = values(genState) * collect(values(genState)')
         return redDenMat
@@ -11,7 +10,6 @@ function ReducedDensityMatrix(genState::Dict{String, Float64}, partiesRemain::Ve
     remainBasis = BasisStates(length(partiesRemain))
 
     partiesTraced = setdiff(1:length(collect(keys(genState))[1]), partiesRemain)
-
     stateTracedBasis = Dict()
     for (state, coeff) in genState
         labelRemain = getsubstring(state, partiesRemain)
@@ -28,32 +26,30 @@ function ReducedDensityMatrix(genState::Dict{String, Float64}, partiesRemain::Ve
     return redDenMat
 end
 
-function EntanglementEntropy(genState, parties::Vector{Int64})
+function EntanglementEntropy(genState, parties)
     redDenMat = ReducedDensityMatrix(genState, parties)
-
     eigenvalues = eigvals(Hermitian(redDenMat))
-
     nonzero_eigvals = eigenvalues[eigenvalues .> 0]
-
     entEntropy = -sum(nonzero_eigvals .* log.(nonzero_eigvals))
-
-    partiesTraced = setdiff(1:length(collect(keys(genState))[1]), parties)
-    redDenMat = ReducedDensityMatrix(genState, partiesTraced)
-
-    eigenvalues_complement = eigvals(Hermitian(redDenMat))
-
-    nonzero_eigvals_complement = eigenvalues_complement[eigenvalues_complement .> 0]
-
-    entEntropy_complement = -sum(nonzero_eigvals_complement .* log.(nonzero_eigvals_complement))
-
-    return 0.5 * (entEntropy + entEntropy_complement)
+    return entEntropy
 end
 
-function MutualInfo(genState, partiesA::Vector{Int64}, partiesB::Vector{Int64})
+function MutualInfo(genState, parties)
 
-    S_A = EntanglementEntropy(genState, partiesA)
-    S_B = EntanglementEntropy(genState, partiesB)
-    S_AB = EntanglementEntropy(genState, [partiesA; partiesB])
+    S_A = EntanglementEntropy(genState, parties[1])
+    S_B = EntanglementEntropy(genState, parties[2])
+    S_AB = EntanglementEntropy(genState, [parties[1]; parties[2]])
 
     return S_A + S_B - S_AB
+end
+
+
+function mapToFunction(measure)
+    if measure == "VNE"
+        return EntanglementEntropy
+    elseif measure == "I2"
+        return MutualInfo
+    else
+        return
+    end
 end
