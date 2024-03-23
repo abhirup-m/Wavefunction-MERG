@@ -33,7 +33,6 @@ from tqdm.notebook import tqdm
 from multiprocessing import Pool
 from time import time
 from operator import itemgetter
-import sympy
 
 
 def getBasis(num_levels, nTot=-1):
@@ -131,7 +130,7 @@ def matrixElement(finalState, operator, initState):
     return matElement
 
 
-def fermionicHamiltonian(manyBodyBasis, terms_list):
+def fermionicHamiltonian(manyBodyBasis, terms_list, tqdm_disable=True):
     """ Creates a matrix Hamiltonian from the specification provided in terms_list. terms_list is a dictionary
     of the form {['+','-']: [[1.1, [0,1]], [0.9, [1,2]], [2, [3,1]]], ['n']: [[1, [0]], [0.5, [1]], [1.2, [2]], [2, [3]]]}.
     Each key represents a specific type of interaction, such as c^dag c or n. The value associated with that key 
@@ -152,11 +151,11 @@ def fermionicHamiltonian(manyBodyBasis, terms_list):
 
         # for each int_kind, pass the indices of sites to the get_operator function to create the operator 
         # for each such term
-        hamlt += sum([coupling * getOperator(manyBodyBasis, int_kind, site_indices) for coupling, site_indices in tqdm(zip(couplings, site_indices_all), total=len(couplings), desc="Obtaining operators for " + int_kind + " .")])
+        hamlt += sum([coupling * getOperator(manyBodyBasis, int_kind, site_indices) for coupling, site_indices in tqdm(zip(couplings, site_indices_all), total=len(couplings), disable=tqdm_disable, desc="Obtaining operators for " + int_kind + " .")])
     return np.array(hamlt)
 
 
-def diagonalise(basis, hamlt):
+def diagonalise(basis, hamlt, tqdm_disable=True):
     """ Diagonalise the provided Hamiltonian matrix.
     Returns all eigenvals and states.
     """
@@ -164,7 +163,7 @@ def diagonalise(basis, hamlt):
     E, v = scipy.linalg.eigh(hamlt)
     with Pool() as pool:
         workers = [pool.apply_async(get_computational_coefficients, (basis, v[:,i])) for i in range(len(E))]
-        eigstates = [worker.get() for worker in tqdm(workers, desc="Expressing state in terms of basis.")]
+        eigstates = [worker.get() for worker in tqdm(workers, disable=tqdm_disable, desc="Expressing state in terms of basis.")]
     return E, eigstates
 
 
@@ -206,7 +205,7 @@ def applyTermOnBasisState(bstate, int_kind, site_indices):
     return bstate, final_coeff
 
 
-def applyOperatorOnState(initialState, terms_list, finalState=dict(), tqdmDesc=None):
+def applyOperatorOnState(initialState, terms_list, finalState=dict(), tqdmDesc=None, tqdm_disable=True):
     """ Applies a general operator on a general state. The general operator is specified through
     the terms_list parameter. The description of this parameter has been provided in the docstring
     of the get_fermionic_hamiltonian function.
@@ -214,7 +213,7 @@ def applyOperatorOnState(initialState, terms_list, finalState=dict(), tqdmDesc=N
 
     # loop over all basis states for the given state, to see how the operator acts 
     # on each such basis state
-    for bstate, coeff in tqdm(initialState.items(), disable=False, desc=tqdmDesc):
+    for bstate, coeff in tqdm(initialState.items(), disable=tqdm_disable, desc=tqdmDesc):
 
         # loop over each term (for eg the list [[0.5,[0,1]], [0.4,[1,2]]]) in the full interaction,
         # so that we can apply each such chunk to each basis state.
@@ -333,7 +332,6 @@ def getReducedDensityMatrix(genState, partiesRemain):
     get_substring = lambda string, sub_indices: "".join(itemgetter(*sub_indices)(string))
     
     remainBasis = getBasis(len(partiesRemain))
-    print (remainBasis)
     
     # get the set of indices that will be traced over by taking the complement of the set partiesRemain.
     partiesTraced = [i for i in range(len(list(genState.keys())[0])) if i not in partiesRemain]      
@@ -344,7 +342,7 @@ def getReducedDensityMatrix(genState, partiesRemain):
         lT = get_substring(state, partiesTraced)
         if lT not in dictionary:
             dictionary[lT] = dict([(state, 0) for state in remainBasis])
-        dictionary[lT][lR] += np.round(coeff, 2)
+        dictionary[lT][lR] += coeff
 
     redDenMat = np.zeros((len(remainBasis), len(remainBasis)))
     for lT in sorted(dictionary):
@@ -362,14 +360,12 @@ def getEntanglementEntropy(genState, parties):
 
     # get the reduced density matrix
     redDenMat = getReducedDensityMatrix(genState, parties)
-    # print (redDenMat[redDenMat != 0])
     
     # get its spectrum
-    eigvals = np.linalg.eigvalsh(redDenMat)
+    eigvals = scipy.linalg.eigvalsh(redDenMat)
 
     # get its non-zero eigenvals
     nonzero_eigvals = eigvals[eigvals > 0]
-    print (nonzero_eigvals)
     
     # calculate von Neumann entropy using the non-zero eigenvals
     entEntropy = -np.sum(nonzero_eigvals * np.log(nonzero_eigvals))
@@ -392,6 +388,5 @@ def getMutualInfo(genState, parties):
     S_A = getEntanglementEntropy(genState, parties[0])
     S_B = getEntanglementEntropy(genState, parties[1])
     S_AB = getEntanglementEntropy(genState, list(parties[0]) + list(parties[1]))
-    print (S_A, S_B, S_AB)
 
     return S_A + S_B - S_AB
