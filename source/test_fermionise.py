@@ -181,17 +181,16 @@ def test_applyOperatorOnState_2states(initialState, terms_list):
         assert finalState == {"011": -1/np.sqrt(3)}
 
 
-@pytest.mark.parametrize("genState, parties", [({"10": 1/np.sqrt(5), "01": 2/np.sqrt(5)}, (0,) ),
-                                               ({"101": 1/np.sqrt(4), "110": np.sqrt(2)/np.sqrt(4), "011": 1/np.sqrt(4)}, (0,) ),
-                                               ({"101": 1/np.sqrt(4), "110": np.sqrt(2)/np.sqrt(4), "011": 1/np.sqrt(4)}, (0, 1) ),
+@pytest.mark.parametrize("genState, parties, case", [({"10": 1/np.sqrt(5), "01": 2/np.sqrt(5)}, (0,), 1),
+                                               ({"101": 1/np.sqrt(4), "110": np.sqrt(2)/np.sqrt(4), "011": 1/np.sqrt(4)}, (0,), 2),
+                                               ({"101": 1/np.sqrt(4), "110": np.sqrt(2)/np.sqrt(4), "011": 1/np.sqrt(4)}, (0, 1), 3),
                                                ]
                          )
-def test_entanglemententropy(genState, parties):
-    print (parties)
+def test_entanglemententropy(genState, parties, case):
     entEntropy = pytest.approx(getEntanglementEntropy(genState, parties))
-    if "10" in genState:
+    if case == 1:
         assert entEntropy == -(0.2) * np.log(0.2) - (0.8) * np.log(0.8)
-    if "101" in genState and parties == (0):
+    if case == 2:
         assert entEntropy == -0.25 * np.log(0.25) - 0.75 * np.log(0.75)
-    if "101" in genState and parties == (0, 1):
+    if case == 3:
         assert entEntropy == - 2 * 0.5 * np.log(0.5)
